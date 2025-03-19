@@ -11,12 +11,15 @@ typedef struct {
     uint32_t opcode;
     int rd;
     int rn;
+    int rm;
     int64_t imm12; // Para instrucciones con inmediato
+    int shift;      // Para instrucciones con extensión y shift
 } Instruction;
 
 // Definir opcodes conocidos
-#define OPCODE_ADDS_IMM  0x588  // ADDS Xd, Xn, #imm (Corrección de opcode)
-#define OPCODE_HLT       0x7E0  // HLT
+#define OPCODE_ADDS_IMM   0x588  // ADDS Xd, Xn, #imm
+#define OPCODE_ADDS_EXT   0x5B0  // ADDS Xd, Xn, Xm, extend shift
+#define OPCODE_HLT        0x6A2  // HLT
 
 // Función para decodificar una instrucción
 Instruction decode_instruction(uint32_t instruction) {
@@ -24,13 +27,24 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.opcode = (instruction >> 21) & 0x7FF;  // Extraer bits 31-21
     inst.rd = (instruction >> 0) & 0x1F;        // Extraer bits 4-0 (Registro destino)
     inst.rn = (instruction >> 5) & 0x1F;        // Extraer bits 9-5 (Registro fuente 1)
+    inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en ADDS EXT)
+    inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en ADDS IMM)
     
     if (inst.opcode == OPCODE_ADDS_IMM) {
         inst.imm12 = (instruction >> 10) & 0xFFF; // Extraer bits 21-10 (valor inmediato)
+        if (inst.shift == 1) {
+            inst.imm12 = inst.imm12 << 12;  // Si shift == 01, mover imm12 12 bits a la izquierda
+        }
     } else {
         inst.imm12 = 0;
     }
     return inst;
+}
+
+// Función para actualizar los flags
+void update_flags(int64_t result) {
+    NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
+    NEXT_STATE.FLAG_N = (result < 0) ? 1 : 0;
 }
 
 void process_instruction() {
@@ -42,13 +56,23 @@ void process_instruction() {
     
     // 3️⃣ Mostrar la instrucción decodificada (para pruebas)
     printf("PC: 0x%08lx | Instrucción: 0x%08x\n", CURRENT_STATE.PC, instruction);
-    printf("Opcode: 0x%03x | Rd: X%d | Rn: X%d | Imm12: %ld\n", inst.opcode, inst.rd, inst.rn, inst.imm12);
+    printf("Opcode: 0x%03x | Rd: X%d | Rn: X%d | Rm: X%d | Imm12: %ld | Shift: %d\n", 
+            inst.opcode, inst.rd, inst.rn, inst.rm, inst.imm12, inst.shift);
     
     // 4️⃣ Ejecutar la instrucción
     switch (inst.opcode) {
         case OPCODE_ADDS_IMM:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
-            printf("Ejecutando ADDS: X%d = X%d + %ld\n", inst.rd, inst.rn, inst.imm12);
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando ADDS (IMM): X%d = X%d + %ld | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            break;
+        
+        case OPCODE_ADDS_EXT:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + (CURRENT_STATE.REGS[inst.rm] << inst.shift);
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando ADDS (EXT): X%d = X%d + (X%d << %d) | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.rm, inst.shift, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             break;
         
         case OPCODE_HLT:
