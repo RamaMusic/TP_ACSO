@@ -19,6 +19,10 @@ typedef struct {
 // Definir opcodes conocidos
 #define OPCODE_ADDS_IMM   0x588  // ADDS Xd, Xn, #imm
 #define OPCODE_ADDS_EXT   0x5B0  // ADDS Xd, Xn, Xm, extend shift
+#define OPCODE_ADD_REG    0x558  // ADD Xd, Xn, Xm
+#define OPCODE_SUBS_IMM   0x788  // SUBS Xd, Xn, #imm
+#define OPCODE_SUBS_EXT   0x5F0  // SUBS Xd, Xn, Xm, extend shift
+#define OPCODE_SUBS_REG   0x758  // SUBS Xd, Xn, Xm (sin inmediato)
 #define OPCODE_HLT        0x6A2  // HLT
 
 // Función para decodificar una instrucción
@@ -27,10 +31,10 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.opcode = (instruction >> 21) & 0x7FF;  // Extraer bits 31-21
     inst.rd = (instruction >> 0) & 0x1F;        // Extraer bits 4-0 (Registro destino)
     inst.rn = (instruction >> 5) & 0x1F;        // Extraer bits 9-5 (Registro fuente 1)
-    inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en ADDS EXT)
-    inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en ADDS IMM)
+    inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
+    inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en IMM)
     
-    if (inst.opcode == OPCODE_ADDS_IMM) {
+    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
         inst.imm12 = (instruction >> 10) & 0xFFF; // Extraer bits 21-10 (valor inmediato)
         if (inst.shift == 1) {
             inst.imm12 = inst.imm12 << 12;  // Si shift == 01, mover imm12 12 bits a la izquierda
@@ -73,6 +77,27 @@ void process_instruction() {
             update_flags(NEXT_STATE.REGS[inst.rd]);
             printf("Ejecutando ADDS (EXT): X%d = X%d + (X%d << %d) | Flags -> Z: %d, N: %d\n", 
                     inst.rd, inst.rn, inst.rm, inst.shift, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            break;
+        
+        case OPCODE_ADD_REG:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + CURRENT_STATE.REGS[inst.rm];
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando ADD (REG): X%d = X%d + X%d | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            break;
+        
+        case OPCODE_SUBS_IMM:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] - inst.imm12;
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando SUBS (IMM): X%d = X%d - %ld | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            break;
+        
+        case OPCODE_SUBS_REG:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] - CURRENT_STATE.REGS[inst.rm];
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando SUBS (REG): X%d = X%d - X%d | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             break;
         
         case OPCODE_HLT:
