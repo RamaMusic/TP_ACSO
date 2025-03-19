@@ -1,7 +1,7 @@
 ADDS (Immediate)          - Implemented
 ADDS (Extended Register)  - Implemented
-SUBS (Immediate)          - Not Implemented
-SUBS (Extended Register)  - Not Implemented
+SUBS (Immediate)          - Implemented
+SUBS (Extended Register)  - Implemented
 HLT                       - Implemented
 CMP (Immediate)           - Not Implemented
 CMP (Extended Register)   - Not Implemented
