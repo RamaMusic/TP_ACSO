@@ -18,13 +18,13 @@ typedef struct {
 
 // Definir opcodes conocidos
 #define OPCODE_ADDS_IMM   0x588  // ADDS Xd, Xn, #imm
-#define OPCODE_ADDS_EXT   0x5B0  // ADDS Xd, Xn, Xm, extend shift
-#define OPCODE_ADD_REG    0x558  // ADD Xd, Xn, Xm
+// #define OPCODE_ADDS_EXT   0x5B0  // ADDS Xd, Xn, Xm, extend shift
+#define OPCODE_ADDS_EXT    0x558  // ADD Xd, Xn, Xm
 #define OPCODE_SUBS_IMM   0x788  // SUBS Xd, Xn, #imm
-#define OPCODE_SUBS_EXT   0x5F0  // SUBS Xd, Xn, Xm, extend shift
-#define OPCODE_SUBS_REG   0x758  // SUBS Xd, Xn, Xm (sin inmediato)
-#define OPCODE_CMP_IMM    0x7C8  // CMP Xn, #imm
-#define OPCODE_CMP_EXT    0x7F0  // CMP Xn, Xm (extended register)
+// #define OPCODE_SUBS_EXT   0x5F0  // SUBS Xd, Xn, Xm, extend shift
+#define OPCODE_SUBS_EXT   0x758  // SUBS Xd, Xn, Xm (sin inmediato)
+// #define OPCODE_CMP_IMM    0x7C8  // CMP Xn, #imm (Mismo opcode que SUBS IMM pero con XZR)
+// #define OPCODE_CMP_EXT    0x758  // CMP Xn, Xm (Mismo opcode que SUBS REG pero con XZR)
 #define OPCODE_HLT        0x6A2  // HLT
 
 // Función para decodificar una instrucción
@@ -36,7 +36,7 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
     inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en IMM)
     
-    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM || inst.opcode == OPCODE_CMP_IMM) {
+    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
         inst.imm12 = (instruction >> 10) & 0xFFF; // Extraer bits 21-10 (valor inmediato)
         if (inst.shift == 1) {
             inst.imm12 = inst.imm12 << 12;  // Si shift == 01, mover imm12 12 bits a la izquierda
@@ -73,17 +73,38 @@ void process_instruction() {
             printf("Ejecutando ADDS (IMM): X%d = X%d + %ld | Flags -> Z: %d, N: %d\n", 
                     inst.rd, inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             break;
-        
-        case OPCODE_CMP_IMM:
-            update_flags(CURRENT_STATE.REGS[inst.rn] - inst.imm12);
-            printf("Ejecutando CMP (IMM): XZR = X%d - %ld | Flags -> Z: %d, N: %d\n", 
-                    inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+
+        case OPCODE_ADDS_EXT:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + CURRENT_STATE.REGS[inst.rm];
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando ADDS (EXT): X%d = X%d + X%d | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             break;
         
-        case OPCODE_CMP_EXT:
-            update_flags(CURRENT_STATE.REGS[inst.rn] - CURRENT_STATE.REGS[inst.rm]);
-            printf("Ejecutando CMP (EXT): XZR = X%d - X%d | Flags -> Z: %d, N: %d\n", 
-                    inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+        case OPCODE_SUBS_IMM:
+            if (inst.rd == 31) { // Si Rd es XZR, tratar como CMP
+                update_flags(CURRENT_STATE.REGS[inst.rn] - inst.imm12);
+                printf("Ejecutando CMP (IMM): XZR = X%d - %ld | Flags -> Z: %d, N: %d", 
+                        inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            } else {
+                NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] - inst.imm12;
+                update_flags(NEXT_STATE.REGS[inst.rd]);
+                printf("Ejecutando SUBS (IMM): X%d = X%d - %ld | Flags -> Z: %d, N: %d", 
+                        inst.rd, inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            }
+            break;
+
+        case OPCODE_SUBS_EXT:
+            if (inst.rd == 31) { // Si Rd es XZR, tratar como CMP
+                update_flags(CURRENT_STATE.REGS[inst.rn] - CURRENT_STATE.REGS[inst.rm]);
+                printf("Ejecutando CMP (EXT): XZR = X%d - X%d | Flags -> Z: %d, N: %d", 
+                        inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            } else {
+                NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] - CURRENT_STATE.REGS[inst.rm];
+                update_flags(NEXT_STATE.REGS[inst.rd]);
+                printf("Ejecutando SUBS (EXT): X%d = X%d - X%d | Flags -> Z: %d, N: %d", 
+                        inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            }
             break;
         
         case OPCODE_HLT:

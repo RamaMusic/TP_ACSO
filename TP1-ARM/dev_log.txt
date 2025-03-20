@@ -1,32 +1,32 @@
-ADDS (Immediate)          - Implemented
-ADDS (Extended Register)  - Implemented
-SUBS (Immediate)          - Implemented
-SUBS (Extended Register)  - Implemented
-HLT                       - Implemented
-CMP (Immediate)           - Not Implemented
-CMP (Extended Register)   - Not Implemented
-ANDS (Shifted Register)   - Not Implemented
-EOR (Shifted Register)    - Not Implemented
-ORR (Shifted Register)    - Not Implemented
-B                         - Not Implemented
-BR                        - Not Implemented
-BEQ (B.Cond)              - Not Implemented
-BNE (B.Cond)              - Not Implemented
-BGT (B.Cond)              - Not Implemented
-BLT (B.Cond)              - Not Implemented
-BGE (B.Cond)              - Not Implemented
-BLE (B.Cond)              - Not Implemented
-LSL (Immediate)           - Not Implemented
-LSR (Immediate)           - Not Implemented
-STUR                      - Not Implemented
-STURB                     - Not Implemented
-STURH                     - Not Implemented
-LDUR                      - Not Implemented
-LDURH                     - Not Implemented
-LDURB                     - Not Implemented
-MOVZ                      - Not Implemented
-ADD (Immediate)           - Not Implemented
-ADD (Extended Register)   - Not Implemented
-MUL                       - Not Implemented
-CBZ                       - Not Implemented
-CBNZ                      - Not Implemented
+ADDS (Immediate)          - Implemented     - addis.x
+ADDS (Extended Register)  - Implemented     - adds.x
+SUBS (Immediate)          - Implemented     - subis.x
+SUBS (Extended Register)  - Implemented     - adds-subs.x
+HLT                       - Implemented     - all
+CMP (Immediate)           - Implemented     - cs_cmp_im.x
+CMP (Extended Register)   - Implemented     - cs_cmp_ex.x
+ANDS (Shifted Register)   - Not Implemented -
+EOR (Shifted Register)    - Not Implemented -
+ORR (Shifted Register)    - Not Implemented -
+B                         - Not Implemented -
+BR                        - Not Implemented -
+BEQ (B.Cond)              - Not Implemented -
+BNE (B.Cond)              - Not Implemented -
+BGT (B.Cond)              - Not Implemented -
+BLT (B.Cond)              - Not Implemented -
+BGE (B.Cond)              - Not Implemented -
+BLE (B.Cond)              - Not Implemented -
+LSL (Immediate)           - Not Implemented -
+LSR (Immediate)           - Not Implemented -
+STUR                      - Not Implemented -
+STURB                     - Not Implemented -
+STURH                     - Not Implemented -
+LDUR                      - Not Implemented -
+LDURH                     - Not Implemented -
+LDURB                     - Not Implemented -
+MOVZ                      - Not Implemented -
+ADD (Immediate)           - Not Implemented -
+ADD (Extended Register)   - Not Implemented -
+MUL                       - Not Implemented -
+CBZ                       - Not Implemented -
+CBNZ                      - Not Implemented -
