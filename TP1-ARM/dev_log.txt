@@ -5,8 +5,8 @@ SUBS (Extended Register)  - Implemented     - adds-subs.x
 HLT                       - Implemented     - all
 CMP (Immediate)           - Implemented     - cs_cmp_im.x
 CMP (Extended Register)   - Implemented     - cs_cmp_ex.x
-ANDS (Shifted Register)   - Not Implemented -
-EOR (Shifted Register)    - Not Implemented -
+ANDS (Shifted Register)   - Implemented     - ands.x
+EOR (Shifted Register)    - Not Implemented - eor.x
 ORR (Shifted Register)    - Not Implemented -
 B                         - Not Implemented -
 BR                        - Not Implemented -

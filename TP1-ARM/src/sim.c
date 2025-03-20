@@ -18,13 +18,11 @@ typedef struct {
 
 // Definir opcodes conocidos
 #define OPCODE_ADDS_IMM   0x588  // ADDS Xd, Xn, #imm
-// #define OPCODE_ADDS_EXT   0x5B0  // ADDS Xd, Xn, Xm, extend shift
-#define OPCODE_ADDS_EXT    0x558  // ADD Xd, Xn, Xm
+#define OPCODE_ADDS_EXT   0x558  // ADD Xd, Xn, Xm
 #define OPCODE_SUBS_IMM   0x788  // SUBS Xd, Xn, #imm
-// #define OPCODE_SUBS_EXT   0x5F0  // SUBS Xd, Xn, Xm, extend shift
 #define OPCODE_SUBS_EXT   0x758  // SUBS Xd, Xn, Xm (sin inmediato)
-// #define OPCODE_CMP_IMM    0x7C8  // CMP Xn, #imm (Mismo opcode que SUBS IMM pero con XZR)
-// #define OPCODE_CMP_EXT    0x758  // CMP Xn, Xm (Mismo opcode que SUBS REG pero con XZR)
+#define OPCODE_ANDS_REG   0x750  // ANDS Xd, Xn, Xm (Shifted Register)
+#define OPCODE_EOR_REG    0x650  // EOR Xd, Xn, Xm (Shifted Register)
 #define OPCODE_HLT        0x6A2  // HLT
 
 // Función para decodificar una instrucción
@@ -73,7 +71,7 @@ void process_instruction() {
             printf("Ejecutando ADDS (IMM): X%d = X%d + %ld | Flags -> Z: %d, N: %d\n", 
                     inst.rd, inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             break;
-
+        
         case OPCODE_ADDS_EXT:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + CURRENT_STATE.REGS[inst.rm];
             update_flags(NEXT_STATE.REGS[inst.rd]);
@@ -84,12 +82,12 @@ void process_instruction() {
         case OPCODE_SUBS_IMM:
             if (inst.rd == 31) { // Si Rd es XZR, tratar como CMP
                 update_flags(CURRENT_STATE.REGS[inst.rn] - inst.imm12);
-                printf("Ejecutando CMP (IMM): XZR = X%d - %ld | Flags -> Z: %d, N: %d", 
+                printf("Ejecutando CMP (IMM): XZR = X%d - %ld | Flags -> Z: %d, N: %d\n", 
                         inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             } else {
                 NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] - inst.imm12;
                 update_flags(NEXT_STATE.REGS[inst.rd]);
-                printf("Ejecutando SUBS (IMM): X%d = X%d - %ld | Flags -> Z: %d, N: %d", 
+                printf("Ejecutando SUBS (IMM): X%d = X%d - %ld | Flags -> Z: %d, N: %d\n", 
                         inst.rd, inst.rn, inst.imm12, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             }
             break;
@@ -97,16 +95,30 @@ void process_instruction() {
         case OPCODE_SUBS_EXT:
             if (inst.rd == 31) { // Si Rd es XZR, tratar como CMP
                 update_flags(CURRENT_STATE.REGS[inst.rn] - CURRENT_STATE.REGS[inst.rm]);
-                printf("Ejecutando CMP (EXT): XZR = X%d - X%d | Flags -> Z: %d, N: %d", 
+                printf("Ejecutando CMP (EXT): XZR = X%d - X%d | Flags -> Z: %d, N: %d\n", 
                         inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             } else {
                 NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] - CURRENT_STATE.REGS[inst.rm];
                 update_flags(NEXT_STATE.REGS[inst.rd]);
-                printf("Ejecutando SUBS (EXT): X%d = X%d - X%d | Flags -> Z: %d, N: %d", 
+                printf("Ejecutando SUBS (EXT): X%d = X%d - X%d | Flags -> Z: %d, N: %d\n", 
                         inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             }
             break;
-        
+
+        case OPCODE_ANDS_REG:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] & CURRENT_STATE.REGS[inst.rm];
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando ANDS (REG): X%d = X%d & X%d | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            break;
+
+        case OPCODE_EOR_REG:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] ^ CURRENT_STATE.REGS[inst.rm];
+            update_flags(NEXT_STATE.REGS[inst.rd]);
+            printf("Ejecutando EOR (REG): X%d = X%d ^ X%d | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            break;
+
         case OPCODE_HLT:
             printf("Deteniendo la simulación (HLT)\n");
             RUN_BIT = 0;
