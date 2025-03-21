@@ -122,7 +122,7 @@ void process_instruction() {
         case OPCODE_HLT:
             printf("Deteniendo la simulación (HLT)\n");
             RUN_BIT = 0;
-            return;
+            break;;
         
         default:
             printf("Instrucción no reconocida (Opcode: 0x%03x)\n", inst.opcode);
