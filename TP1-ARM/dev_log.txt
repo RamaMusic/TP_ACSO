@@ -3,8 +3,8 @@ ADDS (Extended Register)  - Implemented     - adds.x
 SUBS (Immediate)          - Implemented     - subis.x
 SUBS (Extended Register)  - Implemented     - adds-subs.x
 HLT                       - Implemented     - all
-CMP (Immediate)           - Implemented     - cs_cmp_im.x
-CMP (Extended Register)   - Implemented     - cs_cmp_ex.x
+CMP (Immediate)           - Implemented     - cs_cmp_im.x - NOT THE SAME AS THE ref_sim_x86
+CMP (Extended Register)   - Implemented     - cs_cmp_ex.x - NOT THE SAME AS THE ref_sim_x86
 ANDS (Shifted Register)   - Implemented     - ands.x
 EOR (Shifted Register)    - Not Implemented - eor.x
 ORR (Shifted Register)    - Not Implemented -
