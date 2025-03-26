@@ -1,0 +1,13 @@
+# Ignore Visual Studio Code settings
+.vscode/
+
+# Ignore C language compiled files
+*.o
+*.out
+*.exe
+
+# Custom files
+sim_dumpsim
+ref_dumsimp
+diff_output.txt
+dumpsim
