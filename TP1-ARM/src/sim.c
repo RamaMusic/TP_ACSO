@@ -24,6 +24,9 @@ typedef struct {
 #define OPCODE_ANDS_REG   0x750  // ANDS Xd, Xn, Xm (Shifted Register)
 #define OPCODE_EOR_REG    0x650  // EOR Xd, Xn, Xm (Shifted Register)
 #define OPCODE_HLT        0x6A2  // HLT
+#define OPCODE_ORR_REG    0x550  // ORR Xd, Xn, Xm (Shifted Register)
+#define OPCODE_B 0x05            // B bits 31–26
+
 
 // Función para decodificar una instrucción
 Instruction decode_instruction(uint32_t instruction) {
@@ -33,6 +36,19 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.rn = (instruction >> 5) & 0x1F;        // Extraer bits 9-5 (Registro fuente 1)
     inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
     inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en IMM)
+
+    // Instrucción B: opcode está en bits 31:26
+    if (((instruction >> 26) & 0x3F) == OPCODE_B) {
+        inst.opcode = OPCODE_B;
+        int32_t imm26 = instruction & 0x03FFFFFF;  // Bits 25-0
+
+        // Sign-extend: si bit 25 está en 1, rellenamos con 1s arriba
+        if (imm26 & (1 << 25)) {
+            imm26 |= 0xFC000000; // Rellenar bits 31–26 con 1s (sign extension)
+        }
+
+        inst.imm12 = ((int64_t)imm26) << 2; // Multiplicar por 4 (agregar :'00')
+    }
     
     if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
         inst.imm12 = (instruction >> 10) & 0xFFF; // Extraer bits 21-10 (valor inmediato)
@@ -114,8 +130,13 @@ void process_instruction() {
 
         case OPCODE_EOR_REG:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] ^ CURRENT_STATE.REGS[inst.rm];
-            update_flags(NEXT_STATE.REGS[inst.rd]);
             printf("Ejecutando EOR (REG): X%d = X%d ^ X%d | Flags -> Z: %d, N: %d\n", 
+                    inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            break;
+
+        case OPCODE_ORR_REG:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] | CURRENT_STATE.REGS[inst.rm];
+            printf("Ejecutando ORR (REG): X%d = X%d | X%d | Flags -> Z: %d, N: %d\n", 
                     inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
             break;
 
@@ -123,6 +144,12 @@ void process_instruction() {
             printf("Deteniendo la simulación (HLT)\n");
             RUN_BIT = 0;
             break;;
+
+        case OPCODE_B:
+            NEXT_STATE.PC = CURRENT_STATE.PC + inst.imm12;
+            printf("Ejecutando B: salto a PC + %ld → 0x%08lx\n", inst.imm12, NEXT_STATE.PC);
+            CURRENT_STATE = NEXT_STATE;
+            return; // Evitar el PC += 4 automático al final
         
         default:
             printf("Instrucción no reconocida (Opcode: 0x%03x)\n", inst.opcode);
