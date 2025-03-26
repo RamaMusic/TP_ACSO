@@ -9,6 +9,8 @@ extern uint32_t mem_read_32(uint64_t address);
 // Estructura para representar una instrucción decodificada
 typedef struct {
     uint32_t opcode;
+    uint32_t opcode_31_26;
+    uint32_t opcode_31_24;
     int rd;
     int rn;
     int rm;
@@ -27,13 +29,16 @@ typedef struct {
 #define OPCODE_ORR_REG    0x550  // ORR Xd, Xn, Xm (Shifted Register)
 #define OPCODE_B 0x05            // B bits 31–26
 #define OPCODE_BR 0x6B0  // bits 31–21 para instrucción BR
-
+#define OPCODE_BL 0x25  // bits 31–26
+#define OPCODE_B_COND 0x54  // bits 31–24
 
 
 // Función para decodificar una instrucción
 Instruction decode_instruction(uint32_t instruction) {
     Instruction inst;
     inst.opcode = (instruction >> 21) & 0x7FF;  // Extraer bits 31-21
+    inst.opcode_31_26 = (instruction >> 26);
+    inst.opcode_31_24 = (instruction >> 24);
     inst.rd = (instruction >> 0) & 0x1F;        // Extraer bits 4-0 (Registro destino)
     inst.rn = (instruction >> 5) & 0x1F;        // Extraer bits 9-5 (Registro fuente 1)
     inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
@@ -47,7 +52,7 @@ Instruction decode_instruction(uint32_t instruction) {
         }
     }
         // Instrucción B: opcode está en bits 31:26
-    if (((instruction >> 26)) == OPCODE_B) {
+    if (inst.opcode_31_26 == OPCODE_B) {
         inst.opcode = OPCODE_B;
         int32_t imm26 = instruction & 0x03FFFFFF;  // Bits 25-0
 
@@ -58,6 +63,32 @@ Instruction decode_instruction(uint32_t instruction) {
 
         inst.imm12 = ((int64_t)imm26) << 2; // Multiplicar por 4 (agregar :'00')
     }
+
+    if (inst.opcode_31_26 == OPCODE_BL) {
+        inst.opcode = OPCODE_BL;
+        int32_t imm26 = instruction & 0x03FFFFFF;
+
+        if (imm26 & (1 << 25)) {
+            imm26 |= 0xFC000000;  // Sign extend
+        }
+
+        inst.imm12 = ((int64_t)imm26) << 2;
+        return inst;
+    }
+
+    if (inst.opcode_31_24 == OPCODE_B_COND) {
+        inst.opcode = OPCODE_B_COND;
+    
+        int32_t imm19 = (instruction >> 5) & 0x7FFFF; // bits 23–5
+        if (imm19 & (1 << 18)) {
+            imm19 |= 0xFFF80000;  // Sign extend 19 bits
+        }
+    
+        inst.imm12 = ((int64_t)imm19) << 2;  // offset real
+        inst.rd = instruction & 0xF;         // bits 3–0 → condición
+        return inst;
+    }
+
 
     return inst;
 }
@@ -136,10 +167,18 @@ void process_instruction() {
             break;
 
         case OPCODE_ORR_REG:
-            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] | CURRENT_STATE.REGS[inst.rm];
-            printf("Ejecutando ORR (REG): X%d = X%d | X%d | Flags -> Z: %d, N: %d\n", 
-                    inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            if (inst.rn == 31) {
+                // MOV alias: ORR Xd, XZR, Xm → Xd = Xm
+                NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rm];
+                printf("Ejecutando MOV (alias ORR): X%d = X%d\n", inst.rd, inst.rm);
+            } else {
+                NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] | CURRENT_STATE.REGS[inst.rm];
+                update_flags(NEXT_STATE.REGS[inst.rd]);
+                printf("Ejecutando ORR (REG): X%d = X%d | X%d | Flags -> Z: %d, N: %d\n",
+                       inst.rd, inst.rn, inst.rm, NEXT_STATE.FLAG_Z, NEXT_STATE.FLAG_N);
+            }
             break;
+        
 
         case OPCODE_HLT:
             printf("Deteniendo la simulación (HLT)\n");
@@ -158,6 +197,53 @@ void process_instruction() {
                    inst.rn, NEXT_STATE.PC);
             CURRENT_STATE = NEXT_STATE;
             return;
+
+        case OPCODE_BL:
+            NEXT_STATE.REGS[30] = CURRENT_STATE.PC + 4; // Guardar dirección de retorno
+            NEXT_STATE.PC = CURRENT_STATE.PC + inst.imm12; // Saltar
+            printf("Ejecutando BL: salto a PC + %ld → 0x%08lx | X30 (LR) = 0x%08lx\n",
+                   inst.imm12, NEXT_STATE.PC, NEXT_STATE.REGS[30]);
+            CURRENT_STATE = NEXT_STATE;
+            return;
+        
+        case OPCODE_B_COND: {
+            int cond = inst.rd;
+            int take_branch = 0;
+        
+            switch (cond) {
+                case 0x0: // EQ: Z == 1
+                    take_branch = (CURRENT_STATE.FLAG_Z == 1);
+                    break;
+                case 0x1: // NE: Z == 0
+                    take_branch = (CURRENT_STATE.FLAG_Z == 0);
+                    break;
+                case 0xC: // LT: N != V (asumimos V = 0)
+                    take_branch = (CURRENT_STATE.FLAG_N == 1);
+                    break;
+                case 0xD: // GE: N == V (asumimos V = 0)
+                    take_branch = (CURRENT_STATE.FLAG_N == 0);
+                    break;
+                case 0xE: // LE: Z == 1 || N == 1
+                    take_branch = (CURRENT_STATE.FLAG_Z == 1 || CURRENT_STATE.FLAG_N == 1);
+                    break;
+                case 0xF: // GT: Z == 0 && N == 0
+                    take_branch = (CURRENT_STATE.FLAG_Z == 0 && CURRENT_STATE.FLAG_N == 0);
+                    break;
+                default:
+                    printf("Condición B.cond no reconocida: 0x%x\n", cond);
+            }
+        
+            if (take_branch) {
+                NEXT_STATE.PC = CURRENT_STATE.PC + inst.imm12;
+                printf("B.cond tomada (cond=0x%x): salto a 0x%08lx\n", cond, NEXT_STATE.PC);
+                CURRENT_STATE = NEXT_STATE;
+                return;
+            } else {
+                printf("B.cond no tomada (cond=0x%x): continúa\n", cond);
+            }
+        
+            break;
+        }
         
         
         default:
