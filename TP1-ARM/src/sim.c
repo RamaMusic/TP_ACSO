@@ -46,12 +46,20 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.imm12 = 0;
     
     if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
-        inst.imm12 = (instruction >> 10) & 0xFFF; // Extraer bits 21-10 (valor inmediato)
-        if (inst.shift == 1) {
-            inst.imm12 = inst.imm12 << 12;  // Si shift == 01, mover imm12 12 bits a la izquierda
+        inst.imm12 = (instruction >> 10) & 0xFFF; // Bits 21-10
+    
+        switch (inst.shift) {
+            case 0b00: // No shift
+                break;
+            case 0b01: // LSL #12
+                inst.imm12 <<= 12;
+                break;
+            default: // 0b10 y 0b11 son inválidos para esta instrucción
+                printf("Shift inválido en instrucción ADDS/SUBS (IMM): %d\n", inst.shift);
+                break;
         }
-    }
-        // Instrucción B: opcode está en bits 31:26
+    }  
+    // Instrucción B: opcode está en bits 31:26
     if (inst.opcode_31_26 == OPCODE_B) {
         inst.opcode = OPCODE_B;
         int32_t imm26 = instruction & 0x03FFFFFF;  // Bits 25-0
