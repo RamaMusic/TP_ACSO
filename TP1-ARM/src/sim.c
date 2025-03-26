@@ -26,12 +26,14 @@ typedef struct {
 #define OPCODE_HLT        0x6A2  // HLT
 #define OPCODE_ORR_REG    0x550  // ORR Xd, Xn, Xm (Shifted Register)
 #define OPCODE_B 0x05            // B bits 31–26
+#define OPCODE_BR 0x6B0  // bits 31–21 para instrucción BR
+
 
 
 // Función para decodificar una instrucción
 Instruction decode_instruction(uint32_t instruction) {
     Instruction inst;
-    inst.opcode = (instruction >> 21);  // Extraer bits 31-21
+    inst.opcode = (instruction >> 21) & 0x7FF;  // Extraer bits 31-21
     inst.rd = (instruction >> 0) & 0x1F;        // Extraer bits 4-0 (Registro destino)
     inst.rn = (instruction >> 5) & 0x1F;        // Extraer bits 9-5 (Registro fuente 1)
     inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
@@ -149,6 +151,14 @@ void process_instruction() {
             printf("Ejecutando B: salto a PC + %ld → 0x%08lx\n", inst.imm12, NEXT_STATE.PC);
             CURRENT_STATE = NEXT_STATE;
             return; // Evitar el PC += 4 automático al final
+
+        case OPCODE_BR:
+            NEXT_STATE.PC = CURRENT_STATE.REGS[inst.rn];
+            printf("Ejecutando BR: salto a dirección contenida en X%d → 0x%08lx\n",
+                   inst.rn, NEXT_STATE.PC);
+            CURRENT_STATE = NEXT_STATE;
+            return;
+        
         
         default:
             printf("Instrucción no reconocida (Opcode: 0x%03x)\n", inst.opcode);

@@ -6,9 +6,9 @@ HLT                       - Implemented     - all
 CMP (Immediate)           - Implemented     - cs_cmp_im.x
 CMP (Extended Register)   - Implemented     - cs_cmp_ex.x
 ANDS (Shifted Register)   - Implemented     - ands.x
-EOR (Shifted Register)    - Not Implemented - eor.x - DOES IT TURN THE FLAG FOR ZERO?
-ORR (Shifted Register)    - Not Implemented -
-B                         - Not Implemented -
+EOR (Shifted Register)    - Implemented     - eor.x
+ORR (Shifted Register)    - Implemented     - orr.x 
+B                         - Implemented     - b.x
 BR                        - Not Implemented -
 BEQ (B.Cond)              - Not Implemented -
 BNE (B.Cond)              - Not Implemented -
