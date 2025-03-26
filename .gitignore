@@ -8,6 +8,6 @@
 
 # Custom files
 **/sim_dumpsim
-**/ref_dumsimp
+**/ref_dumpsim
 **/diff_output.txt
 **/dumpsim
