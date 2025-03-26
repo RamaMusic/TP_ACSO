@@ -31,14 +31,21 @@ typedef struct {
 // Función para decodificar una instrucción
 Instruction decode_instruction(uint32_t instruction) {
     Instruction inst;
-    inst.opcode = (instruction >> 21) & 0x7FF;  // Extraer bits 31-21
+    inst.opcode = (instruction >> 21);  // Extraer bits 31-21
     inst.rd = (instruction >> 0) & 0x1F;        // Extraer bits 4-0 (Registro destino)
     inst.rn = (instruction >> 5) & 0x1F;        // Extraer bits 9-5 (Registro fuente 1)
     inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
     inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en IMM)
-
-    // Instrucción B: opcode está en bits 31:26
-    if (((instruction >> 26) & 0x3F) == OPCODE_B) {
+    inst.imm12 = 0;
+    
+    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
+        inst.imm12 = (instruction >> 10) & 0xFFF; // Extraer bits 21-10 (valor inmediato)
+        if (inst.shift == 1) {
+            inst.imm12 = inst.imm12 << 12;  // Si shift == 01, mover imm12 12 bits a la izquierda
+        }
+    }
+        // Instrucción B: opcode está en bits 31:26
+    if (((instruction >> 26)) == OPCODE_B) {
         inst.opcode = OPCODE_B;
         int32_t imm26 = instruction & 0x03FFFFFF;  // Bits 25-0
 
@@ -49,15 +56,7 @@ Instruction decode_instruction(uint32_t instruction) {
 
         inst.imm12 = ((int64_t)imm26) << 2; // Multiplicar por 4 (agregar :'00')
     }
-    
-    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
-        inst.imm12 = (instruction >> 10) & 0xFFF; // Extraer bits 21-10 (valor inmediato)
-        if (inst.shift == 1) {
-            inst.imm12 = inst.imm12 << 12;  // Si shift == 01, mover imm12 12 bits a la izquierda
-        }
-    } else {
-        inst.imm12 = 0;
-    }
+
     return inst;
 }
 
