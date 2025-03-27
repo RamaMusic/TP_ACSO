@@ -233,40 +233,46 @@ int execute_branch(Instruction inst) {
                    inst.imm12, NEXT_STATE.PC, NEXT_STATE.REGS[30]);
             branch_taken = 1;
             break;
-        
+
         case OPCODE_B_COND: {
             int cond = inst.rd;
             int take_branch = 0;
-        
+
             switch (cond) {
                 case 0x0: // EQ: Z == 1
-                    take_branch = (CURRENT_STATE.FLAG_Z == 1);
+                    take_branch = CURRENT_STATE.FLAG_Z == 1;
+                    printf("B.EQ: Z=%d ", CURRENT_STATE.FLAG_Z);
                     break;
                 case 0x1: // NE: Z == 0
-                    take_branch = (CURRENT_STATE.FLAG_Z == 0);
+                    take_branch = CURRENT_STATE.FLAG_Z == 0;
+                    printf("B.NE: Z=%d ", CURRENT_STATE.FLAG_Z);
                     break;
-                case 0xC: // LT: N != V (asumimos V = 0)
-                    take_branch = (CURRENT_STATE.FLAG_N == 1);
+                case 0xB: // LT: N == 1
+                    take_branch = CURRENT_STATE.FLAG_N == 1;
+                    printf("B.LT: N=%d ", CURRENT_STATE.FLAG_N);
                     break;
-                case 0xD: // GE: N == V (asumimos V = 0)
-                    take_branch = (CURRENT_STATE.FLAG_N == 0);
+                case 0xA: // GE: N == 0
+                    take_branch = CURRENT_STATE.FLAG_N == 0;
+                    printf("B.GE: N=%d ", CURRENT_STATE.FLAG_N);
                     break;
-                case 0xE: // LE: Z == 1 || N == 1
+                case 0xD: // LE: Z == 1 || N == 1
                     take_branch = (CURRENT_STATE.FLAG_Z == 1 || CURRENT_STATE.FLAG_N == 1);
+                    printf("B.LE: Z=%d N=%d ", CURRENT_STATE.FLAG_Z, CURRENT_STATE.FLAG_N);
                     break;
-                case 0xF: // GT: Z == 0 && N == 0
+                case 0xC: // GT: Z == 0 && N == 0
                     take_branch = (CURRENT_STATE.FLAG_Z == 0 && CURRENT_STATE.FLAG_N == 0);
+                    printf("B.GT: Z=%d N=%d ", CURRENT_STATE.FLAG_Z, CURRENT_STATE.FLAG_N);
                     break;
                 default:
                     printf("Condición B.cond no reconocida: 0x%x\n", cond);
             }
-        
+
             if (take_branch) {
                 NEXT_STATE.PC = CURRENT_STATE.PC + inst.imm12;
-                printf("B.cond tomada (cond=0x%x): salto a 0x%08lx\n", cond, NEXT_STATE.PC);
+                printf("tomada: salto a 0x%08lx\n", NEXT_STATE.PC);
                 branch_taken = 1;
             } else {
-                printf("B.cond no tomada (cond=0x%x): continúa\n", cond);
+                printf("no tomada: continúa\n");
             }
             break;
         }
