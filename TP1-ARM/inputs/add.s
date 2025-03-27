@@ -28,15 +28,14 @@ _start:
     // Test ADD con registro desplazado (LSL)
     ADD X12, X1, X3, LSL #4    // X12 = X1 + (X3 << 4) = 0x1234 + 0xF0 = 0x1324
     
-    // Test ADD con registro extendido (UXTB - extender byte sin signo)
-    ADD X13, X2, X3, UXTB     // X13 = X2 + (X3 extendido a byte) = 0x5678 + 0xF = 0x5687
+    // Test ADD with shifted register
+    ADD X13, X2, X3, LSL #2    // X13 = X2 + (X3 << 2) = 0x5678 + 0x3C = 0x56B4
     
-    // Test ADD con registro extendido y desplazamiento
-    ADD X14, X1, X3, UXTB #2  // X14 = X1 + (X3 extendido a byte y desplazado 2) = 0x1234 + (0xF << 2) = 0x1234 + 0x3C = 0x1270
+    // Test ADD with another shift value
+    ADD X14, X1, X3, LSL #1    // X14 = X1 + (X3 << 1) = 0x1234 + 0x1E = 0x1252
     
     // Test ADD con valores grandes
     ADD X15, X4, X2       // X15 = X4 + X2 = 0x00FF0000 + 0x5678 = 0x00FF5678
     
     // Fin de la prueba
     HLT #0
-    

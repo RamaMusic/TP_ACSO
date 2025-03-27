@@ -20,7 +20,9 @@ typedef struct {
 
 // Definir opcodes conocidos
 #define OPCODE_ADDS_IMM   0x588  // ADDS Xd, Xn, #imm
-#define OPCODE_ADDS_EXT   0x558  // ADD Xd, Xn, Xm
+#define OPCODE_ADDS_EXT   0x558  // ADDS Xd, Xn, Xm
+#define OPCODE_ADD_IMM    0x488  // ADD Xd, Xn, #imm
+#define OPCODE_ADD_EXT    0x458  // ADD Xd, Xn, Xm
 #define OPCODE_SUBS_IMM   0x788  // SUBS Xd, Xn, #imm
 #define OPCODE_SUBS_EXT   0x758  // SUBS Xd, Xn, Xm (sin inmediato)
 #define OPCODE_ANDS_REG   0x750  // ANDS Xd, Xn, Xm (Shifted Register)
@@ -56,7 +58,7 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en IMM)
     inst.imm12 = 0;
     
-    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
+    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM || inst.opcode == OPCODE_ADD_IMM) {
         inst.imm12 = (instruction >> 10) & 0xFFF; // Bits 21-10
     
         switch (inst.shift) {
@@ -66,7 +68,7 @@ Instruction decode_instruction(uint32_t instruction) {
                 inst.imm12 <<= 12;
                 break;
             default: // 0b10 y 0b11 son inválidos para esta instrucción
-                printf("Shift inválido en instrucción ADDS/SUBS (IMM): %d\n", inst.shift);
+                printf("Shift inválido en instrucción ADDS/SUBS/ADD (IMM): %d\n", inst.shift);
                 break;
         }
     }
@@ -231,6 +233,25 @@ void process_instruction() {
     
     // 4️⃣ Ejecutar la instrucción
     switch (inst.opcode) {
+        case OPCODE_ADD_IMM:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            printf("Ejecutando ADD (IMM): X%d = X%d + %ld\n", 
+                    inst.rd, inst.rn, inst.imm12);
+            break;
+            
+        case OPCODE_ADD_EXT:
+            // Manejar el shift si está presente
+            int64_t shifted_value = CURRENT_STATE.REGS[inst.rm];
+            if (inst.shift > 0) {
+                shifted_value = CURRENT_STATE.REGS[inst.rm] << inst.shift;
+            }
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + shifted_value;
+            printf("Ejecutando ADD (EXT): X%d = X%d + X%d%s%d\n", 
+                    inst.rd, inst.rn, inst.rm, 
+                    (inst.shift > 0) ? ", LSL #" : "", 
+                    (inst.shift > 0) ? inst.shift : 0);
+            break;
+            
         case OPCODE_ADDS_IMM:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
             update_flags(NEXT_STATE.REGS[inst.rd]);
