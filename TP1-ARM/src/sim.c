@@ -343,10 +343,10 @@ void process_instruction() {
         }
 
         case OPCODE_LSL_IMM:
-        NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] << inst.imm12;
-        printf("Ejecutando LSL (IMM): X%d = X%d << %ld\n",
-               inst.rd, inst.rn, inst.imm12);
-        break;
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] << inst.imm12;
+            printf("Ejecutando LSL (IMM): X%d = X%d << %ld\n",
+                inst.rd, inst.rn, inst.imm12);
+            break;
 
         case OPCODE_LSR_IMM:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] >> inst.imm12;
