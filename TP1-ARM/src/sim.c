@@ -32,8 +32,8 @@ typedef struct {
 #define OPCODE_BL 0x25  // bits 31–26
 #define OPCODE_B_COND 0x54  // bits 31–24
 #define OPCODE_LSR_IMM 0x69A  // opcode 31–21 según ensamblado real
-
-
+#define OPCODE_UBFM_ALIAS 0x4B5   // bits 31–21 para UBFM (posible alias de LSL)
+#define OPCODE_LSL_IMM    0xFFF   // Valor especial que vamos a usar internamente
 
 
 // Función para decodificar una instrucción
@@ -60,6 +60,17 @@ Instruction decode_instruction(uint32_t instruction) {
             default: // 0b10 y 0b11 son inválidos para esta instrucción
                 printf("Shift inválido en instrucción ADDS/SUBS (IMM): %d\n", inst.shift);
                 break;
+        }
+    }
+
+    // LSR
+    if (inst.opcode == 0x69B) {  // UBFM
+        uint8_t immr = (instruction >> 16) & 0x3F;
+        uint8_t imms = (instruction >> 10) & 0x3F;
+
+        if (imms != 0b111111 && (imms + 1) == immr) {
+            inst.opcode = OPCODE_LSL_IMM;
+            inst.imm12 = 64 - immr;  // shift = 64 - immr
         }
     }
 
@@ -262,6 +273,12 @@ void process_instruction() {
         
             break;
         }
+
+        case OPCODE_LSL_IMM:
+        NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] << inst.imm12;
+        printf("Ejecutando LSL (IMM): X%d = X%d << %ld\n",
+               inst.rd, inst.rn, inst.imm12);
+        break;
 
         case OPCODE_LSR_IMM:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] >> inst.imm12;
