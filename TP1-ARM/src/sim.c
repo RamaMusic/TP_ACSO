@@ -34,6 +34,10 @@ typedef struct {
 #define OPCODE_LSR_IMM 0x69A  // opcode 31–21 según ensamblado real
 #define OPCODE_UBFM_ALIAS 0x4B5   // bits 31–21 para UBFM (posible alias de LSL)
 #define OPCODE_LSL_IMM    0xFFF   // Valor especial que vamos a usar internamente
+#define OPCODE_STUR 0x7C0  // bits 31–21
+#define OPCODE_STURB 0x1C0  // bits 31–21
+#define OPCODE_MOVZ 0x694  // bits 31–21 para MOVZ Xd, #imm, LSL #0 (hw = 0)
+
 
 
 // Función para decodificar una instrucción
@@ -118,6 +122,37 @@ Instruction decode_instruction(uint32_t instruction) {
         return inst;
     }
 
+    if (inst.opcode == OPCODE_STUR) {
+        int32_t imm9 = (instruction >> 12) & 0x1FF;  // bits 20–12
+        if (imm9 & (1 << 8)) {
+            imm9 |= 0xFFFFFE00;  // Sign-extend 9 bits
+        }
+    
+        inst.imm12 = imm9;
+        inst.rn = (instruction >> 5) & 0x1F;   // base register
+        inst.rd = instruction & 0x1F;          // Rt = registro a almacenar
+    }
+
+    if (inst.opcode == OPCODE_STURB) {
+        int32_t imm9 = (instruction >> 12) & 0x1FF; // bits 20–12
+        if (imm9 & (1 << 8)) {
+            imm9 |= 0xFFFFFE00;  // Sign-extend a 64 bits
+        }
+    
+        inst.imm12 = imm9;
+        inst.rn = (instruction >> 5) & 0x1F;   // base register
+        inst.rd = instruction & 0x1F;          // Rt = valor a guardar
+    }
+    
+    if (inst.opcode == OPCODE_MOVZ) {
+        inst.rd = instruction & 0x1F;                // bits 4–0
+        inst.imm12 = (instruction >> 5) & 0xFFFF;    // bits 20–5 → imm16
+        uint8_t hw = (instruction >> 21) & 0x3;      // bits 22–21
+        if (hw != 0) {
+            printf("MOVZ solo implementado con hw = 0\n");
+        }
+    }
+    
 
     return inst;
 }
@@ -284,6 +319,29 @@ void process_instruction() {
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] >> inst.imm12;
             printf("Ejecutando LSR (IMM): X%d = X%d >> %ld → 0x%lx\n",
                 inst.rd, inst.rn, inst.imm12, NEXT_STATE.REGS[inst.rd]);
+            break;
+
+        case OPCODE_STUR: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            uint64_t data = CURRENT_STATE.REGS[inst.rd];
+            mem_write_32(addr, data & 0xFFFFFFFF);         // parte baja
+            mem_write_32(addr + 4, (data >> 32) & 0xFFFFFFFF); // parte alta
+            printf("Ejecutando STUR: M[0x%08lx] = X%d (0x%016lx)\n",
+                    addr, inst.rd, data);
+            break;
+        }
+            
+        case OPCODE_STURB: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            uint8_t byte = CURRENT_STATE.REGS[inst.rd] & 0xFF;
+            mem_write_32(addr, (mem_read_32(addr) & 0xFFFFFF00) | byte);
+            printf("Ejecutando STURB: M[0x%08lx] = X%d(7:0) → 0x%02x\n", addr, inst.rd, byte);
+            break;
+        }
+
+        case OPCODE_MOVZ:
+            NEXT_STATE.REGS[inst.rd] = inst.imm12 & 0xFFFF;
+            printf("Ejecutando MOVZ: X%d = 0x%lx\n", inst.rd, NEXT_STATE.REGS[inst.rd]);
             break;
 
         
