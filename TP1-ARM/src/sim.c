@@ -44,7 +44,7 @@ typedef struct {
 #define OPCODE_STURH      0x3C0 // bits 31–21 
 #define OPCODE_MOVZ       0x694 // bits 31–21 para MOVZ Xd, #imm, LSL #0 (hw = 0)
 #define OPCODE_MUL        0x4D8 // bits 31-21 for MUL instruction (MADD alias)
-#define OPCODE_CBZ    0x5A0    // Update: correct opcode for CBZ
+#define OPCODE_CBZ        0x5A0 // Update: correct opcode for CBZ
 
 
 
