@@ -17,7 +17,7 @@ fi
 
 # Default values for cycles
 CYCLES_START=1
-CYCLES_END=10
+CYCLES_END=20
 CYCLES_STEP=1
 ARGS=()
 
