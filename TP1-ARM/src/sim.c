@@ -31,6 +31,9 @@ typedef struct {
 #define OPCODE_BR 0x6B0  // bits 31–21 para instrucción BR
 #define OPCODE_BL 0x25  // bits 31–26
 #define OPCODE_B_COND 0x54  // bits 31–24
+#define OPCODE_LSR_IMM 0x69A  // opcode 31–21 según ensamblado real
+
+
 
 
 // Función para decodificar una instrucción
@@ -58,7 +61,14 @@ Instruction decode_instruction(uint32_t instruction) {
                 printf("Shift inválido en instrucción ADDS/SUBS (IMM): %d\n", inst.shift);
                 break;
         }
-    }  
+    }
+
+    if (inst.opcode == OPCODE_LSR_IMM) {
+        inst.rd = instruction & 0x1F;              // bits 4–0
+        inst.rn = (instruction >> 5) & 0x1F;       // bits 9–5
+        inst.imm12 = (instruction >> 16) & 0x3F;   // bits 21–16: shift amount
+    }
+
     // Instrucción B: opcode está en bits 31:26
     if (inst.opcode_31_26 == OPCODE_B) {
         inst.opcode = OPCODE_B;
@@ -252,6 +262,13 @@ void process_instruction() {
         
             break;
         }
+
+        case OPCODE_LSR_IMM:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] >> inst.imm12;
+            printf("Ejecutando LSR (IMM): X%d = X%d >> %ld → 0x%lx\n",
+                inst.rd, inst.rn, inst.imm12, NEXT_STATE.REGS[inst.rd]);
+            break;
+
         
         
         default:
