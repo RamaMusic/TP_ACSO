@@ -9,16 +9,16 @@ ANDS (Shifted Register)   - Implemented     - ands.x
 EOR (Shifted Register)    - Implemented     - eor.x
 ORR (Shifted Register)    - Implemented     - orr.x 
 B                         - Implemented     - b.x
-BR                        - Not Implemented -
-BEQ (B.Cond)              - Not Implemented -
-BNE (B.Cond)              - Not Implemented -
-BGT (B.Cond)              - Not Implemented -
-BLT (B.Cond)              - Not Implemented -
-BGE (B.Cond)              - Not Implemented -
-BLE (B.Cond)              - Not Implemented -
-LSL (Immediate)           - Not Implemented -
-LSR (Immediate)           - Not Implemented -
-STUR                      - Not Implemented -
+BR                        - Implemented     - br.x
+BEQ (B.Cond)              - Implemented     - beq.x
+BNE (B.Cond)              - Implemented     - b_cond.x
+BGT (B.Cond)              - Implemented     - b_cond.x
+BLT (B.Cond)              - Implemented     - b_cond.x
+BGE (B.Cond)              - Implemented     - b_cond.x
+BLE (B.Cond)              - Implemented     - b_cond.x
+LSL (Immediate)           - Implemented     - lsl.x
+LSR (Immediate)           - Implemented     - lsr.x
+STUR                      - Implemented     - stur.x
 STURB                     - Not Implemented -
 STURH                     - Not Implemented -
 LDUR                      - Not Implemented -

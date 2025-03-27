@@ -37,7 +37,9 @@ typedef struct {
 #define OPCODE_LDUR 0x7C2  // bits 31–21 para LDUR X (verificado desde el binario real)
 #define OPCODE_LDURH 0x3C2
 #define OPCODE_LDURB 0x1C2
-
+#define OPCODE_STUR 0x7C0  // bits 31–21
+#define OPCODE_STURB 0x1C0  // bits 31–21
+#define OPCODE_MOVZ 0x694  // bits 31–21 para MOVZ Xd, #imm, LSL #0 (hw = 0)
 
 // Función para decodificar una instrucción
 Instruction decode_instruction(uint32_t instruction) {
@@ -153,6 +155,35 @@ Instruction decode_instruction(uint32_t instruction) {
             imm9 |= ~0x1FF;
         }
         inst.imm12 = imm9;
+    if (inst.opcode == OPCODE_STUR) {
+        int32_t imm9 = (instruction >> 12) & 0x1FF;  // bits 20–12
+        if (imm9 & (1 << 8)) {
+            imm9 |= 0xFFFFFE00;  // Sign-extend 9 bits
+        }
+    
+        inst.imm12 = imm9;
+        inst.rn = (instruction >> 5) & 0x1F;   // base register
+        inst.rd = instruction & 0x1F;          // Rt = registro a almacenar
+    }
+
+    if (inst.opcode == OPCODE_STURB) {
+        int32_t imm9 = (instruction >> 12) & 0x1FF; // bits 20–12
+        if (imm9 & (1 << 8)) {
+            imm9 |= 0xFFFFFE00;  // Sign-extend a 64 bits
+        }
+    
+        inst.imm12 = imm9;
+        inst.rn = (instruction >> 5) & 0x1F;   // base register
+        inst.rd = instruction & 0x1F;          // Rt = valor a guardar
+    }
+    
+    if (inst.opcode == OPCODE_MOVZ) {
+        inst.rd = instruction & 0x1F;                // bits 4–0
+        inst.imm12 = (instruction >> 5) & 0xFFFF;    // bits 20–5 → imm16
+        uint8_t hw = (instruction >> 21) & 0x3;      // bits 22–21
+        if (hw != 0) {
+            printf("MOVZ solo implementado con hw = 0\n");
+        }
     }
     
 
@@ -366,6 +397,30 @@ void process_instruction() {
             break;
         }        
             
+        case OPCODE_STUR: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            uint64_t data = CURRENT_STATE.REGS[inst.rd];
+            mem_write_32(addr, data & 0xFFFFFFFF);         // parte baja
+            mem_write_32(addr + 4, (data >> 32) & 0xFFFFFFFF); // parte alta
+            printf("Ejecutando STUR: M[0x%08lx] = X%d (0x%016lx)\n",
+                    addr, inst.rd, data);
+            break;
+        }
+            
+        case OPCODE_STURB: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            uint8_t byte = CURRENT_STATE.REGS[inst.rd] & 0xFF;
+            mem_write_32(addr, (mem_read_32(addr) & 0xFFFFFF00) | byte);
+            printf("Ejecutando STURB: M[0x%08lx] = X%d(7:0) → 0x%02x\n", addr, inst.rd, byte);
+            break;
+        }
+
+        case OPCODE_MOVZ:
+            NEXT_STATE.REGS[inst.rd] = inst.imm12 & 0xFFFF;
+            printf("Ejecutando MOVZ: X%d = 0x%lx\n", inst.rd, NEXT_STATE.REGS[inst.rd]);
+            break;
+
+        
         
         default:
             printf("Instrucción no reconocida (Opcode: 0x%03x)\n", inst.opcode);
