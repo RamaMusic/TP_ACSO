@@ -39,6 +39,7 @@ typedef struct {
 #define OPCODE_LDURB 0x1C2
 #define OPCODE_STUR 0x7C0  // bits 31–21
 #define OPCODE_STURB 0x1C0  // bits 31–21
+#define OPCODE_STURH 0x3C0  // bits 31–21 
 #define OPCODE_MOVZ 0x694  // bits 31–21 para MOVZ Xd, #imm, LSL #0 (hw = 0)
 
 // Función para decodificar una instrucción
@@ -168,6 +169,17 @@ Instruction decode_instruction(uint32_t instruction) {
     }
 
     if (inst.opcode == OPCODE_STURB) {
+        int32_t imm9 = (instruction >> 12) & 0x1FF; // bits 20–12
+        if (imm9 & (1 << 8)) {
+            imm9 |= 0xFFFFFE00;  // Sign-extend a 64 bits
+        }
+    
+        inst.imm12 = imm9;
+        inst.rn = (instruction >> 5) & 0x1F;   // base register
+        inst.rd = instruction & 0x1F;          // Rt = valor a guardar
+    }
+
+    if (inst.opcode == OPCODE_STURH) {
         int32_t imm9 = (instruction >> 12) & 0x1FF; // bits 20–12
         if (imm9 & (1 << 8)) {
             imm9 |= 0xFFFFFE00;  // Sign-extend a 64 bits
@@ -421,7 +433,13 @@ void process_instruction() {
             printf("Ejecutando MOVZ: X%d = 0x%lx\n", inst.rd, NEXT_STATE.REGS[inst.rd]);
             break;
 
-        
+        case OPCODE_STURH: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            uint16_t half = CURRENT_STATE.REGS[inst.rd] & 0xFFFF;
+            mem_write_32(addr, (mem_read_32(addr) & 0xFFFF0000) | half);
+            printf("Ejecutando STURH: M[0x%08lx] = X%d(15:0) → 0x%04x\n", addr, inst.rd, half);
+            break;
+        }
         
         default:
             printf("Instrucción no reconocida (Opcode: 0x%03x)\n", inst.opcode);

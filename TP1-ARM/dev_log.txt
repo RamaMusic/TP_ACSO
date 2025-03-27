@@ -20,9 +20,9 @@ LSL (Immediate)           - Implemented     - lsl.x
 LSR (Immediate)           - Implemented     - lsr.x
 STUR                      - Implemented     - stur.x
 STURB                     - Not Implemented -
-STURH                     - Not Implemented -
-LDUR                      - Not Implemented -
-LDURH                     - Not Implemented -
+STURH                     - Implemented     - ldur_stur_etc.x
+LDUR                      - Implemented     - ldur_stur_etc.x
+LDURH                     - Implemented     - ldur_stur_etc.x
 LDURB                     - Not Implemented -
 MOVZ                      - Not Implemented -
 ADD (Immediate)           - Not Implemented -
