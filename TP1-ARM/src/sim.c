@@ -34,6 +34,9 @@ typedef struct {
 #define OPCODE_LSR_IMM 0x69A  // opcode 31–21 según ensamblado real
 #define OPCODE_UBFM_ALIAS 0x4B5   // bits 31–21 para UBFM (posible alias de LSL)
 #define OPCODE_LSL_IMM    0xFFF   // Valor especial que vamos a usar internamente
+#define OPCODE_LDUR 0x7C2  // bits 31–21 para LDUR X (verificado desde el binario real)
+#define OPCODE_LDURH 0x3C2
+#define OPCODE_LDURB 0x1C2
 
 
 // Función para decodificar una instrucción
@@ -118,6 +121,40 @@ Instruction decode_instruction(uint32_t instruction) {
         return inst;
     }
 
+    if (((instruction >> 21) & 0x7FF) == OPCODE_LDUR) {
+        inst.opcode = OPCODE_LDUR;
+        inst.rd = instruction & 0x1F;              // Rt
+        inst.rn = (instruction >> 5) & 0x1F;       // Rn
+        int32_t imm9 = (instruction >> 12) & 0x1FF;
+        // Sign extension de 9 bits a 64 bits
+        if (imm9 & (1 << 8)) {
+            imm9 |= ~0x1FF;
+        }
+        inst.imm12 = imm9;
+    }
+    
+    if (((instruction >> 21) & 0x7FF) == OPCODE_LDURH) {
+        inst.opcode = OPCODE_LDURH;
+        inst.rd = instruction & 0x1F;
+        inst.rn = (instruction >> 5) & 0x1F;
+        int32_t imm9 = (instruction >> 12) & 0x1FF;
+        if (imm9 & (1 << 8)) {
+            imm9 |= ~0x1FF;
+        }
+        inst.imm12 = imm9;
+    }
+    
+    if (((instruction >> 21) & 0x7FF) == OPCODE_LDURB) {
+        inst.opcode = OPCODE_LDURB;
+        inst.rd = instruction & 0x1F;
+        inst.rn = (instruction >> 5) & 0x1F;
+        int32_t imm9 = (instruction >> 12) & 0x1FF;
+        if (imm9 & (1 << 8)) {
+            imm9 |= ~0x1FF;
+        }
+        inst.imm12 = imm9;
+    }
+    
 
     return inst;
 }
@@ -286,7 +323,49 @@ void process_instruction() {
                 inst.rd, inst.rn, inst.imm12, NEXT_STATE.REGS[inst.rd]);
             break;
 
-        
+        case OPCODE_LDUR: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            if (addr < 0x10000000) {
+                printf("LDUR: dirección fuera de la memoria (0x%lx)\n", addr);
+                break;
+            }
+            uint64_t val = 0;
+            val |= mem_read_32(addr);
+            val |= ((uint64_t)mem_read_32(addr + 4)) << 32;
+            NEXT_STATE.REGS[inst.rd] = val;
+            printf("Ejecutando LDUR: X%d = M[X%d + %ld] = 0x%lx\n",
+                    inst.rd, inst.rn, inst.imm12, val);
+            break;
+        }
+
+        case OPCODE_LDURH: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            if (addr < 0x10000000) {
+                printf("LDURH: dirección fuera de la memoria (0x%lx)\n", addr);
+                break;
+            }
+            uint32_t word = mem_read_32(addr);
+            uint64_t half = word & 0xFFFF;  // Extraer solo los primeros 16 bits
+            NEXT_STATE.REGS[inst.rd] = half;
+            printf("Ejecutando LDURH: X%d = zero_extend_16(M[X%d + %ld]) = 0x%lx\n",
+                   inst.rd, inst.rn, inst.imm12, half);
+            break;
+        }
+
+        case OPCODE_LDURB: {
+            uint64_t addr = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            if (addr < 0x10000000) {
+                printf("LDURB: dirección fuera de la memoria (0x%lx)\n", addr);
+                break;
+            }
+            uint32_t word = mem_read_32(addr);
+            uint64_t byte = word & 0xFF;  // Extraer solo los primeros 8 bits
+            NEXT_STATE.REGS[inst.rd] = byte;
+            printf("Ejecutando LDURB: X%d = zero_extend_8(M[X%d + %ld]) = 0x%lx\n",
+                   inst.rd, inst.rn, inst.imm12, byte);
+            break;
+        }        
+            
         
         default:
             printf("Instrucción no reconocida (Opcode: 0x%03x)\n", inst.opcode);
