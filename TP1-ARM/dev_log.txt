@@ -19,12 +19,12 @@ BLE (B.Cond)              - Implemented     - b_cond.x
 LSL (Immediate)           - Implemented     - lsl.x
 LSR (Immediate)           - Implemented     - lsr.x
 STUR                      - Implemented     - stur.x
-STURB                     - Not Implemented -
-STURH                     - Implemented     - ldur_stur_etc.x
-LDUR                      - Implemented     - ldur_stur_etc.x
-LDURH                     - Implemented     - ldur_stur_etc.x
-LDURB                     - Not Implemented -
-MOVZ                      - Not Implemented -
+STURB                     - Implemented     - all_stur_and_ldur.x
+STURH                     - Implemented     - all_stur_and_ldur.x
+LDUR                      - Implemented     - all_stur_and_ldur.x
+LDURH                     - Implemented     - all_stur_and_ldur.x
+LDURB                     - Implemented     - all_stur_and_ldur.x
+MOVZ                      - Implemented     - movz.x
 ADD (Immediate)           - Not Implemented -
 ADD (Extended Register)   - Not Implemented -
 MUL                       - Not Implemented -

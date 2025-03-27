@@ -16,11 +16,16 @@ typedef struct {
     int rm;
     int64_t imm12; // Para instrucciones con inmediato
     int shift;      // Para instrucciones con extensión y shift
+    int extend_type; // Tipo de extensión (UXTB, UXTH, etc.)
+    int extend_amount; // Cantidad de desplazamiento para extensiones
 } Instruction;
 
 // Definir opcodes conocidos
 #define OPCODE_ADDS_IMM   0x588  // ADDS Xd, Xn, #imm
 #define OPCODE_ADDS_EXT   0x558  // ADD Xd, Xn, Xm
+#define OPCODE_ADD_IMM    0x488  // ADD Xd, Xn, #imm
+#define OPCODE_ADD_EXT    0x458  // ADD Xd, Xn, Xm
+#define OPCODE_ADD_EXT_REG 0x459  // ADD Xd, Xn, Xm, <extend> [#<amount>]
 #define OPCODE_SUBS_IMM   0x788  // SUBS Xd, Xn, #imm
 #define OPCODE_SUBS_EXT   0x758  // SUBS Xd, Xn, Xm (sin inmediato)
 #define OPCODE_ANDS_REG   0x750  // ANDS Xd, Xn, Xm (Shifted Register)
@@ -53,8 +58,10 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
     inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en IMM)
     inst.imm12 = 0;
+    inst.extend_type = 0;
+    inst.extend_amount = 0;
     
-    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM) {
+    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM || inst.opcode == OPCODE_ADD_IMM) {
         inst.imm12 = (instruction >> 10) & 0xFFF; // Bits 21-10
     
         switch (inst.shift) {
@@ -64,7 +71,7 @@ Instruction decode_instruction(uint32_t instruction) {
                 inst.imm12 <<= 12;
                 break;
             default: // 0b10 y 0b11 son inválidos para esta instrucción
-                printf("Shift inválido en instrucción ADDS/SUBS (IMM): %d\n", inst.shift);
+                printf("Shift inválido en instrucción ADDS/SUBS/ADD (IMM): %d\n", inst.shift);
                 break;
         }
     }
@@ -188,6 +195,15 @@ Instruction decode_instruction(uint32_t instruction) {
         inst.imm12 = imm9;
         inst.rn = (instruction >> 5) & 0x1F;   // base register
         inst.rd = instruction & 0x1F;          // Rt = valor a guardar
+    }
+    
+    // Detectar instrucciones ADD con registro extendido (opcode 0x459)
+    if (inst.opcode == OPCODE_ADD_EXT_REG) {
+        inst.rd = instruction & 0x1F;              // bits 4-0
+        inst.rn = (instruction >> 5) & 0x1F;       // bits 9-5
+        inst.rm = (instruction >> 16) & 0x1F;      // bits 20-16
+        inst.extend_type = (instruction >> 13) & 0x7; // bits 15-13 (tipo de extensión)
+        inst.extend_amount = (instruction >> 10) & 0x7; // bits 12-10 (cantidad de desplazamiento)
     }
     
     if (inst.opcode == OPCODE_MOVZ) {
@@ -441,6 +457,85 @@ void process_instruction() {
             break;
         }
         
+        case OPCODE_ADD_IMM:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
+            printf("Ejecutando ADD (IMM): X%d = X%d + %ld → 0x%lx\n", 
+                    inst.rd, inst.rn, inst.imm12, NEXT_STATE.REGS[inst.rd]);
+            break;
+            
+        case OPCODE_ADD_EXT:
+            {
+                // Extraer el shift amount de los bits 10-15 para LSL
+                int shift_amount = (instruction >> 10) & 0x3F;
+                // Verificar si hay un shift (bits 22-21 = 00 para LSL)
+                int shift_type = (instruction >> 22) & 0x3;
+                int64_t shifted_value = CURRENT_STATE.REGS[inst.rm];
+                
+                // Aplicar shift según el tipo
+                if (shift_type == 0) { // LSL
+                    shifted_value <<= shift_amount;
+                }
+                
+                NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + shifted_value;
+                printf("Ejecutando ADD (EXT): X%d = X%d + (X%d << %d) → 0x%lx\n", 
+                        inst.rd, inst.rn, inst.rm, shift_amount, NEXT_STATE.REGS[inst.rd]);
+            }
+            break;
+        
+        case OPCODE_ADD_EXT_REG:
+            {
+                int64_t extended_value = CURRENT_STATE.REGS[inst.rm];
+                
+                // Aplicar la extensión según el tipo
+                switch (inst.extend_type) {
+                    case 0: // UXTB - Extender byte sin signo
+                        extended_value = extended_value & 0xFF;
+                        break;
+                    case 1: // UXTH - Extender halfword sin signo
+                        extended_value = extended_value & 0xFFFF;
+                        break;
+                    case 2: // UXTW - Extender word sin signo
+                        extended_value = extended_value & 0xFFFFFFFF;
+                        break;
+                    case 3: // UXTX - Extender doubleword sin signo (no hace nada en 64 bits)
+                        break;
+                    case 4: // SXTB - Extender byte con signo
+                        extended_value = (extended_value & 0xFF);
+                        if (extended_value & 0x80) extended_value |= 0xFFFFFFFFFFFFFF00;
+                        break;
+                    case 5: // SXTH - Extender halfword con signo
+                        extended_value = (extended_value & 0xFFFF);
+                        if (extended_value & 0x8000) extended_value |= 0xFFFFFFFFFFFF0000;
+                        break;
+                    case 6: // SXTW - Extender word con signo
+                        extended_value = (extended_value & 0xFFFFFFFF);
+                        if (extended_value & 0x80000000) extended_value |= 0xFFFFFFFF00000000;
+                        break;
+                    case 7: // SXTX - Extender doubleword con signo (no hace nada en 64 bits)
+                        break;
+                }
+                
+                // Aplicar el desplazamiento si existe
+                if (inst.extend_amount > 0) {
+                    extended_value <<= inst.extend_amount;
+                }
+                
+                NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + extended_value;
+                
+                // Mostrar información sobre la operación
+                char* extend_names[] = {"UXTB", "UXTH", "UXTW", "UXTX", "SXTB", "SXTH", "SXTW", "SXTX"};
+                if (inst.extend_amount > 0) {
+                    printf("Ejecutando ADD (EXT REG): X%d = X%d + (X%d, %s #%d) → 0x%lx\n", 
+                           inst.rd, inst.rn, inst.rm, extend_names[inst.extend_type], 
+                           inst.extend_amount, NEXT_STATE.REGS[inst.rd]);
+                } else {
+                    printf("Ejecutando ADD (EXT REG): X%d = X%d + (X%d, %s) → 0x%lx\n", 
+                           inst.rd, inst.rn, inst.rm, extend_names[inst.extend_type], 
+                           NEXT_STATE.REGS[inst.rd]);
+                }
+            }
+            break;
+            
         default:
             printf("Instrucción no reconocida (Opcode: 0x%03x)\n", inst.opcode);
     }
