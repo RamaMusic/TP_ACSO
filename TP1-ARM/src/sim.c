@@ -155,6 +155,7 @@ Instruction decode_instruction(uint32_t instruction) {
             imm9 |= ~0x1FF;
         }
         inst.imm12 = imm9;
+    }
     if (inst.opcode == OPCODE_STUR) {
         int32_t imm9 = (instruction >> 12) & 0x1FF;  // bits 20–12
         if (imm9 & (1 << 8)) {
