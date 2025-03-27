@@ -25,8 +25,8 @@ LDUR                      - Implemented     - all_stur_and_ldur.x
 LDURH                     - Implemented     - all_stur_and_ldur.x
 LDURB                     - Implemented     - all_stur_and_ldur.x
 MOVZ                      - Implemented     - movz.x
-ADD (Immediate)           - Not Implemented -
-ADD (Extended Register)   - Not Implemented -
-MUL                       - Not Implemented -
-CBZ                       - Not Implemented -
-CBNZ                      - Not Implemented -
+ADD (Immediate)           - Implemented     - add.x
+ADD (Extended Register)   - Implemented     - add.x
+MUL                       - Implemented     - mul.x
+CBZ                       - Implemented     - cbz.x
+CBNZ                      - Implemented     - cbz.x

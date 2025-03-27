@@ -44,6 +44,8 @@ typedef struct {
 #define OPCODE_STURH      0x3C0 // bits 31–21 
 #define OPCODE_MOVZ       0x694 // bits 31–21 para MOVZ Xd, #imm, LSL #0 (hw = 0)
 #define OPCODE_MUL        0x4D8 // bits 31-21 for MUL instruction (MADD alias)
+#define OPCODE_CBZ    0x5A0    // Update: correct opcode for CBZ
+
 
 
 // Función para decodificar una instrucción
@@ -208,6 +210,23 @@ Instruction decode_instruction(uint32_t instruction) {
         inst.rd = instruction & 0x1F;              // bits 4-0: Rd
         inst.rn = (instruction >> 5) & 0x1F;       // bits 9-5: Rn (first source)
         inst.rm = (instruction >> 16) & 0x1F;      // bits 20-16: Rm (second source)
+    }
+
+    
+    if ((inst.opcode_31_24 & 0xFE) == 0xB4) {  // Base opcode for both CBZ/CBNZ
+        inst.opcode = OPCODE_CBZ;  // We'll use CBZ as the base opcode
+        inst.rd = instruction & 0x1F;  // bits 4-0: Rt
+        int32_t imm19 = (instruction >> 5) & 0x7FFFF;  // bits 23-5
+        
+        // Store if it's CBNZ in the shift field (bit 24 differentiates them)
+        inst.shift = (instruction >> 24) & 0x1;  // 0 for CBZ, 1 for CBNZ
+        
+        // Sign extend imm19
+        if (imm19 & (1 << 18)) {
+            imm19 |= 0xFFF80000;
+        }
+        
+        inst.imm12 = ((int64_t)imm19) << 2;  // multiply by 4 for byte offset
     }
     
     return inst;
@@ -474,6 +493,29 @@ void process_instruction() {
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] * CURRENT_STATE.REGS[inst.rm];
             printf("Ejecutando MUL: X%d = X%d * X%d = 0x%lx\n",
                    inst.rd, inst.rn, inst.rm, NEXT_STATE.REGS[inst.rd]);
+            break;
+        }
+
+        
+        case OPCODE_CBZ: {
+            int is_zero = (CURRENT_STATE.REGS[inst.rd] == 0);
+            int should_branch = (inst.shift == 0) ? is_zero : !is_zero;  // CBZ vs CBNZ logic
+            
+            if (should_branch) {
+                NEXT_STATE.PC = CURRENT_STATE.PC + inst.imm12;
+                printf("Ejecutando %s: X%d %s 0, saltando a PC + %ld → 0x%08lx\n",
+                       inst.shift ? "CBNZ" : "CBZ",
+                       inst.rd,
+                       inst.shift ? "no es" : "es",
+                       inst.imm12, NEXT_STATE.PC);
+                CURRENT_STATE = NEXT_STATE;
+                return;
+            } else {
+                printf("Ejecutando %s: X%d %s 0, continuando\n",
+                       inst.shift ? "CBNZ" : "CBZ",
+                       inst.rd,
+                       inst.shift ? "es" : "no es");
+            }
             break;
         }
         
