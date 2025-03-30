@@ -1,22 +1,20 @@
-.section .text
-.global _start
+.text
+// Inicialización básica
+mov x10, #1               // x10 = 0b0001
+mov x11, #2               // x11 = 0b0010
+orr x0, x10, x11          // x0 = 0b0001 | 0b0010 = 0b0011 (3)
 
-_start:
-    // Zero X0 using XZR (allowed in register-form ADDS)
-    ADDS X0, XZR, XZR       // X0 = 0 (0 + 0)
-    
-    // Initialize X1 and X2 using X0 (now zero) as the base
-    ADDS X1, X0, #0xA       // X1 = 0 + 0xA = 10
-    ADDS X2, X0, #0x5       // X2 = 0 + 0x5 = 5
-    
-    // Perform bitwise OR
-    ORR X0, X1, X2          // X0 = 0xA | 0x5 = 0xF
-    
-    // Compare X0 with 0xF (sets Z=1, N=0)
-    CMP X0, #0xF
-    
-    // Copy X0 to X3 via XZR (valid register-form ADDS)
-    ADDS X3, XZR, X0        // X3 = 0 + X0 = 0xF
-    
-    // Exit (replace HLT with syscall if needed)
-    HLT #0
+// Otro caso
+mov x12, #0               // x12 = 0b0000
+mov x13, #8               // x13 = 0b1000
+orr x1, x12, x13          // x1 = 0b0000 | 0b1000 = 0b1000 (8)
+
+// Otro caso
+mov x14, #5               // x14 = 0b0101
+mov x15, #10              // x15 = 0b1010
+orr x2, x14, x15          // x2 = 0b0101 | 0b1010 = 0b1111 (15)
+
+// OR con sí mismo
+orr x3, x10, x10          // x3 = 0b0001 | 0b0001 = 0b0001 (1)
+
+HLT 0

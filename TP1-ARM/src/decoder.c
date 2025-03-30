@@ -9,15 +9,17 @@ Instruction decode_instruction(uint32_t instruction) {
     inst.opcode = (instruction >> 21) & 0x7FF;  // Extraer bits 31-21
     inst.opcode_31_26 = (instruction >> 26);    // Extraer bits 31-26
     inst.opcode_31_24 = (instruction >> 24);    // Extraer bits 31-24
+    inst.opcode_31_22 = (instruction >> 22);    // Extraer bits 31-22
+    inst.opcode_31_10 = (instruction >> 10);    // Extraer bits 31-10
     inst.rd = (instruction >> 0) & 0x1F;        // Extraer bits 4-0 (Registro destino)
     inst.rn = (instruction >> 5) & 0x1F;        // Extraer bits 9-5 (Registro fuente 1)
     inst.rm = (instruction >> 16) & 0x1F;       // Extraer bits 20-16 (Registro fuente 2, solo en EXT y REG)
     inst.shift = (instruction >> 22) & 0x3;     // Extraer bits 23-22 (Shift en IMM)
     inst.imm12 = 0;
     
-    if (inst.opcode == OPCODE_ADDS_IMM || inst.opcode == OPCODE_SUBS_IMM || inst.opcode == OPCODE_ADD_IMM) {
+    if (inst.opcode_31_24 == OPCODE_ADDS_IMM || inst.opcode_31_24 == OPCODE_SUBS_IMM || inst.opcode_31_24 == OPCODE_ADD_IMM) {
         inst.imm12 = (instruction >> 10) & 0xFFF; // Bits 21-10
-    
+        inst.opcode = inst.opcode_31_24;
         switch (inst.shift) {
             case 0b00: // No shift
                 break;
@@ -30,21 +32,16 @@ Instruction decode_instruction(uint32_t instruction) {
         }
     }
 
-    // LSR
-    if (inst.opcode == 0x69B) {  // UBFM
+    if (inst.opcode_31_22 == OPCODE_LSL_R_IMM) {
         uint8_t immr = (instruction >> 16) & 0x3F;
         uint8_t imms = (instruction >> 10) & 0x3F;
-
-        if (imms != 0b111111 && (imms + 1) == immr) {
-            inst.opcode = OPCODE_LSL_IMM;
-            inst.imm12 = 64 - immr;  // shift = 64 - immr
+        if (imms!= 0b111111 && (imms + 1) == immr) {
+            inst.opcode = INT_OPCODE_LSL;
+            inst.imm12 = 64 - immr;  // Acá va el shift para LSL
+        } else {
+            inst.opcode = INT_OPCODE_LSR;
+            inst.imm12 = (instruction >> 16) & 0x3F; // Aca va el shift para LSR
         }
-    }
-
-    if (inst.opcode == OPCODE_LSR_IMM) {
-        inst.rd = instruction & 0x1F;              // bits 4–0
-        inst.rn = (instruction >> 5) & 0x1F;       // bits 9–5
-        inst.imm12 = (instruction >> 16) & 0x3F;   // bits 21–16: shift amount
     }
 
     // Instrucción B: opcode está en bits 31:26
@@ -60,6 +57,10 @@ Instruction decode_instruction(uint32_t instruction) {
         inst.imm12 = ((int64_t)imm26) << 2; // Multiplicar por 4 (agregar :'00')
     }
 
+    if (inst.opcode_31_10 == OPCODE_BR) {
+        inst.opcode = OPCODE_BR;
+    }
+
     if (inst.opcode_31_26 == OPCODE_BL) {
         inst.opcode = OPCODE_BL;
         int32_t imm26 = instruction & 0x03FFFFFF;
@@ -69,7 +70,6 @@ Instruction decode_instruction(uint32_t instruction) {
         }
 
         inst.imm12 = ((int64_t)imm26) << 2;
-        return inst;
     }
 
     if (inst.opcode_31_24 == OPCODE_B_COND) {
@@ -82,25 +82,17 @@ Instruction decode_instruction(uint32_t instruction) {
     
         inst.imm12 = ((int64_t)imm19) << 2;  // offset real
         inst.rd = instruction & 0xF;         // bits 3–0 → condición
-        return inst;
     }
 
-    if (((instruction >> 21) & 0x7FF) == OPCODE_LDUR) {
-        inst.opcode = OPCODE_LDUR;
-        inst.rd = instruction & 0x1F;              // Rt
-        inst.rn = (instruction >> 5) & 0x1F;       // Rn
-        int32_t imm9 = (instruction >> 12) & 0x1FF;
-        // Sign extension de 9 bits a 64 bits
+    if (inst.opcode == OPCODE_LDUR) {
+        int32_t imm9 = (instruction >> 12) & 0x1FF; // Sign extension de 9 bits a 64 bits
         if (imm9 & (1 << 8)) {
             imm9 |= ~0x1FF;
         }
         inst.imm12 = imm9;
     }
     
-    if (((instruction >> 21) & 0x7FF) == OPCODE_LDURH) {
-        inst.opcode = OPCODE_LDURH;
-        inst.rd = instruction & 0x1F;
-        inst.rn = (instruction >> 5) & 0x1F;
+    if (inst.opcode == OPCODE_LDURH) {
         int32_t imm9 = (instruction >> 12) & 0x1FF;
         if (imm9 & (1 << 8)) {
             imm9 |= ~0x1FF;
@@ -108,10 +100,7 @@ Instruction decode_instruction(uint32_t instruction) {
         inst.imm12 = imm9;
     }
     
-    if (((instruction >> 21) & 0x7FF) == OPCODE_LDURB) {
-        inst.opcode = OPCODE_LDURB;
-        inst.rd = instruction & 0x1F;
-        inst.rn = (instruction >> 5) & 0x1F;
+    if (inst.opcode == OPCODE_LDURB) {
         int32_t imm9 = (instruction >> 12) & 0x1FF;
         if (imm9 & (1 << 8)) {
             imm9 |= ~0x1FF;
@@ -123,10 +112,7 @@ Instruction decode_instruction(uint32_t instruction) {
         if (imm9 & (1 << 8)) {
             imm9 |= 0xFFFFFE00;  // Sign-extend 9 bits
         }
-    
         inst.imm12 = imm9;
-        inst.rn = (instruction >> 5) & 0x1F;   // base register
-        inst.rd = instruction & 0x1F;          // Rt = registro a almacenar
     }
 
     if (inst.opcode == OPCODE_STURB) {
@@ -134,10 +120,7 @@ Instruction decode_instruction(uint32_t instruction) {
         if (imm9 & (1 << 8)) {
             imm9 |= 0xFFFFFE00;  // Sign-extend a 64 bits
         }
-    
         inst.imm12 = imm9;
-        inst.rn = (instruction >> 5) & 0x1F;   // base register
-        inst.rd = instruction & 0x1F;          // Rt = valor a guardar
     }
 
     if (inst.opcode == OPCODE_STURH) {
@@ -145,36 +128,16 @@ Instruction decode_instruction(uint32_t instruction) {
         if (imm9 & (1 << 8)) {
             imm9 |= 0xFFFFFE00;  // Sign-extend a 64 bits
         }
-    
         inst.imm12 = imm9;
-        inst.rn = (instruction >> 5) & 0x1F;   // base register
-        inst.rd = instruction & 0x1F;          // Rt = valor a guardar
     }
     
     if (inst.opcode == OPCODE_MOVZ) {
         inst.imm12 = (instruction >> 5) & 0xFFFF;    // bits 20–5 → imm16
-        uint8_t hw = (instruction >> 21) & 0x3;      // bits 22–21
-        if (hw != 0) {
-            printf("MOVZ solo implementado con hw = 0\n");
-        }
     }
-
-    if (((instruction >> 21) & 0x7FF) == OPCODE_MUL) {
-        inst.opcode = OPCODE_MUL;
-        inst.rd = instruction & 0x1F;              // bits 4-0: Rd
-        inst.rn = (instruction >> 5) & 0x1F;       // bits 9-5: Rn (first source)
-        inst.rm = (instruction >> 16) & 0x1F;      // bits 20-16: Rm (second source)
-    }
-
     
-    if ((inst.opcode_31_24 & 0xFE) == 0xB4) {  // Base opcode for both CBZ/CBNZ
-        inst.opcode = OPCODE_CBZ;  // We'll use CBZ as the base opcode
-        inst.rd = instruction & 0x1F;  // bits 4-0: Rt
-        int32_t imm19 = (instruction >> 5) & 0x7FFFF;  // bits 23-5
-        
-        // Store if it's CBNZ in the shift field (bit 24 differentiates them)
-        inst.shift = (instruction >> 24) & 0x1;  // 0 for CBZ, 1 for CBNZ
-        
+    if (inst.opcode_31_24 == OPCODE_CBZ || inst.opcode_31_24 == OPCODE_CBNZ) {
+        inst.opcode = inst.opcode_31_24;
+        int32_t imm19 = (instruction >> 5) & 0x7FFFF;  // bits 23-5        
         // Sign extend imm19
         if (imm19 & (1 << 18)) {
             imm19 |= 0xFFF80000;
@@ -182,7 +145,7 @@ Instruction decode_instruction(uint32_t instruction) {
         
         inst.imm12 = ((int64_t)imm19) << 2;  // multiply by 4 for byte offset
     }
-    
+
     return inst;
 }
 

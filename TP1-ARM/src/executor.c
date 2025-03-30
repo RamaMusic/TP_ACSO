@@ -18,18 +18,13 @@ void execute_arithmetic_logic(Instruction inst) {
                     inst.rd, inst.rn, inst.imm12);
             break;
             
-        case OPCODE_ADD_EXT: {
-            int64_t shifted_value = CURRENT_STATE.REGS[inst.rm];
-            if (inst.shift > 0) {
-                shifted_value = CURRENT_STATE.REGS[inst.rm] << inst.shift;
-            }
-            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + shifted_value;
+        case OPCODE_ADD_EXT:
+            NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + CURRENT_STATE.REGS[inst.rm];
             printf("Ejecutando ADD (EXT): X%d = X%d + X%d%s%d\n", 
                     inst.rd, inst.rn, inst.rm, 
                     (inst.shift > 0) ? ", LSL #" : "", 
                     (inst.shift > 0) ? inst.shift : 0);
             break;
-        }
             
         case OPCODE_ADDS_IMM:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] + inst.imm12;
@@ -97,13 +92,13 @@ void execute_arithmetic_logic(Instruction inst) {
             }
             break;
 
-        case OPCODE_LSL_IMM:
+        case INT_OPCODE_LSL:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] << inst.imm12;
             printf("Ejecutando LSL (IMM): X%d = X%d << %ld\n",
                 inst.rd, inst.rn, inst.imm12);
             break;
 
-        case OPCODE_LSR_IMM:
+        case INT_OPCODE_LSR:
             NEXT_STATE.REGS[inst.rd] = CURRENT_STATE.REGS[inst.rn] >> inst.imm12;
             printf("Ejecutando LSR (IMM): X%d = X%d >> %ld → 0x%lx\n",
                 inst.rd, inst.rn, inst.imm12, NEXT_STATE.REGS[inst.rd]);
@@ -235,7 +230,7 @@ int execute_branch(Instruction inst) {
             break;
 
         case OPCODE_B_COND: {
-            int cond = inst.rd;
+            int cond = inst.rd; // Esto son solo los ulitmos 3 bits en este caso.
             int take_branch = 0;
 
             switch (cond) {
@@ -277,26 +272,27 @@ int execute_branch(Instruction inst) {
             break;
         }
 
-        case OPCODE_CBZ: {
-            int is_zero = (CURRENT_STATE.REGS[inst.rd] == 0);
-            int should_branch = (inst.shift == 0) ? is_zero : !is_zero;  // CBZ vs CBNZ logic
-            
-            if (should_branch) {
+        case OPCODE_CBZ:
+            if (CURRENT_STATE.REGS[inst.rd] == 0) {
                 NEXT_STATE.PC = CURRENT_STATE.PC + inst.imm12;
-                printf("Ejecutando %s: X%d %s 0, saltando a PC + %ld → 0x%08lx\n",
-                       inst.shift ? "CBNZ" : "CBZ",
-                       inst.rd,
-                       inst.shift ? "no es" : "es",
-                       inst.imm12, NEXT_STATE.PC);
+                printf("Ejecutando CBZ: X%d es 0, saltando a PC + %ld → 0x%08lx\n",
+                       inst.rd, inst.imm12, NEXT_STATE.PC);
                 branch_taken = 1;
             } else {
-                printf("Ejecutando %s: X%d %s 0, continuando\n",
-                       inst.shift ? "CBNZ" : "CBZ",
-                       inst.rd,
-                       inst.shift ? "es" : "no es");
+                printf("Ejecutando CBZ: X%d no es 0, continuando\n", inst.rd);
             }
             break;
-        }
+        
+        case OPCODE_CBNZ:
+            if (!(CURRENT_STATE.REGS[inst.rd] == 0)) {
+                NEXT_STATE.PC = CURRENT_STATE.PC + inst.imm12;
+                printf("Ejecutando CBNZ: X%d no es 0, saltando a PC + %ld → 0x%08lx\n",
+                       inst.rd, inst.imm12, NEXT_STATE.PC);
+                branch_taken = 1;
+            } else {
+                printf("Ejecutando CBNZ: X%d es 0, continuando\n", inst.rd);
+            }
+            break;
 
         default:
             printf("Instrucción de salto no reconocida (Opcode: 0x%03x)\n", inst.opcode);
@@ -318,8 +314,8 @@ int get_instruction_type(uint32_t opcode) {
         opcode == OPCODE_ADDS_IMM || opcode == OPCODE_ADDS_EXT ||
         opcode == OPCODE_SUBS_IMM || opcode == OPCODE_SUBS_EXT ||
         opcode == OPCODE_ANDS_REG || opcode == OPCODE_EOR_REG ||
-        opcode == OPCODE_ORR_REG || opcode == OPCODE_LSL_IMM ||
-        opcode == OPCODE_LSR_IMM || opcode == OPCODE_MOVZ ||
+        opcode == OPCODE_ORR_REG || opcode == INT_OPCODE_LSL ||
+        opcode == INT_OPCODE_LSR || opcode == OPCODE_MOVZ ||
         opcode == OPCODE_MUL || opcode == OPCODE_HLT) {
         return TYPE_ARITHMETIC_LOGIC;
     }
@@ -334,7 +330,7 @@ int get_instruction_type(uint32_t opcode) {
     // Instrucciones de salto
     if (opcode == OPCODE_B || opcode == OPCODE_BR ||
         opcode == OPCODE_BL || opcode == OPCODE_B_COND ||
-        opcode == OPCODE_CBZ) {
+        opcode == OPCODE_CBZ || opcode == OPCODE_CBNZ) {
         return TYPE_BRANCH;
     }
     
