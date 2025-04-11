@@ -1,60 +1,53 @@
-# Diario Técnico - Resolución del Trabajo Práctico "Bomba Binaria"
+# Resolución Técnica – TP Bomba Binaria
 
-Este documento describe detalladamente el proceso seguido para resolver las fases propuestas en el trabajo práctico denominado "Bomba Binaria". El enfoque empleado consistió en el análisis minucioso del código ensamblador, uso intensivo de herramientas de depuración como GDB, inspección directa de memoria y desarrollo de scripts auxiliares en Python para facilitar la resolución de cada etapa planteada por la bomba.
+Este documento presenta una descripción detallada y paso a paso del proceso seguido para resolver las diferentes fases del trabajo práctico denominado "Bomba Binaria". El enfoque se basó en analizar cuidadosamente el código ensamblador, utilizar el debugger GDB para inspeccionar la memoria y realizar scripts en Python que automatizaran tareas específicas y complejas.
 
 ---
 
-## Fase 1: Comparación de Cadenas
+## Fase 1 – Comparación de Cadenas
 
 ### Análisis del código ensamblador
 
-En esta primera fase, el objetivo era encontrar una cadena exacta requerida por la bomba. La función en ensamblador (`phase_1`) realizaba una comparación del input del usuario con una cadena almacenada en memoria:
+Al inicio, revisé la función `phase_1` y observé que la misma comparaba la cadena que yo ingresaba con otra almacenada dentro del binario. El código ensamblador indicaba claramente una comparación directa:
 
 ```asm
-401def: lea rsi, [rip+0xc7c62]     ; dirección del string oculto
+401def: lea rsi, [rip+0xc7c62]     ; carga puntero a string constante
 401df6: call 4022b9 <strings_not_equal>
 401dfb: test eax, eax
 401dfd: jne 401e04 <explode_bomb>
 ```
 
-### Resolución usando GDB
+### Resolución utilizando GDB
 
-Para descubrir el string esperado se siguieron estos pasos:
-- Se insertaron breakpoints en `explode_bomb` y en la línea posterior a la comparación.
-- Se calculó la dirección del string:
+Para obtener el valor correcto:
 
-```
-0x401df6 + 0xc7c62 = 0x4c9a58
-```
-
-- Se examinó esta dirección en memoria mediante:
+- Coloqué un breakpoint en `explode_bomb` y otro justo después de la comparación.
+- Calculé la dirección del string sumando `rip` y el offset dado.
+- Inspeccioné esta dirección con el comando de GDB:
 
 ```
 x/s 0x4c9a58
 ```
 
-Este procedimiento reveló la cadena requerida:
+Encontré así la cadena requerida:
 
 ```
 "Confía en el tiempo, que suele dar dulces salidas a muchas amargas dificultades"
 ```
 
-Al ingresar esta cadena en la bomba, la fase 1 fue superada exitosamente.
+Ingresar este valor resolvió exitosamente la primera fase.
 
 ---
 
-## Fase 2: Validación Numérica y Operaciones Binarias
+## Fase 2 – Validación Numérica y Condiciones Binarias
 
-### Análisis del código ensamblador
+### Análisis inicial del ensamblador
 
-La fase 2 requería dos números enteros que cumplían dos condiciones específicas analizadas en la función auxiliar `misterio`:
+La segunda fase requería dos números enteros. Al revisar el código, noté que había condiciones complejas en la función `misterio`. Puntualmente, se validaba que el resultado de `x + y - 32` tuviera exactamente 11 bits activos y que el resultado del XOR (`x ^ y`) fuera negativo.
 
-- El número resultante de la operación `a = x + y - 32` debía contener exactamente 11 bits activos (bits en 1).
-- El resultado de la operación XOR (`x ^ y`) debía ser negativo.
+### Desarrollo de un script en Python
 
-### Resolución mediante script en Python
-
-Se desarrolló un script en Python para identificar pares válidos:
+Decidí crear un script en Python para resolver esto de forma más rápida:
 
 ```python
 for x in range(-10000, 10000):
@@ -64,95 +57,100 @@ for x in range(-10000, 10000):
             print(x, y)
 ```
 
-Una solución válida identificada fue:
-
-```
--7921 10000
-```
-
-Introducir estos valores permitió desactivar la fase 2 con éxito.
+Este script encontró rápidamente varios pares válidos. Entre estos, usé el par `-7921 10000` y con eso pude avanzar a la siguiente fase sin problema.
 
 ---
 
-## Fase 3: Recursividad y Búsqueda Binaria
+## Fase 3 – Búsqueda Binaria y Recursión
 
-### Análisis del problema
+### Entendiendo la fase
 
-La fase 3 implicaba cargar un archivo externo llamado `palabras.txt`, que contenía un arreglo ordenado de palabras. La función `cuenta` realizaba una búsqueda binaria recursiva que retornaba un número basado en la suma del valor ASCII del primer carácter de cada palabra visitada durante la búsqueda.
+La fase 3 fue algo más complicada. Observé en el código que el programa abría un archivo llamado `palabras.txt`. La función `cuenta` realizaba una búsqueda binaria sobre las palabras cargadas desde este archivo, acumulando valores ASCII según los nodos que recorría.
 
 ### Script en Python para simulación
 
-Se desarrolló un script que imitaba exactamente la búsqueda binaria realizada por el programa:
+Para resolverlo más rápido y evitar hacerlo manualmente, escribí otro script que simulaba exactamente esta lógica:
 
 ```python
-for each word in palabras.txt:
-    result = recursive_binary_search(word)
-    if 401 <= result <= 799:
-        store (word, result)
+for word in palabras:
+    resultado = simular_cuenta(word)
+    if 401 <= resultado <= 799:
+        guardar (word, resultado)
 ```
 
-### Problemas encontrados
+### Problema encontrado y solución
 
-Inicialmente se produjo un error en la interpretación del formato requerido por el input:
-- Se asumió incorrectamente que el formato era `<number> <string>`.
-- Al inspeccionar el código ensamblador mediante GDB:
+Tuve un problema porque inicialmente asumí que el input debía ser primero el número y luego el string, pero al analizar con GDB usando:
 
 ```
 x/s 0x4c7099
 → "%s %d"
 ```
 
-se reveló que el formato correcto era primero el string y luego el número.
-
-Al corregir el formato del input, se ingresó la solución válida:
+descubrí que el formato era el contrario (primero el string, luego el número). Tras corregir este detalle, ingresé el input correcto:
 
 ```
 abatatar 782
 ```
 
-Esto permitió superar con éxito la fase 3.
+Esto resolvió satisfactoriamente la fase 3.
 
 ---
 
-## Fase 4: Indexación Binaria y Operaciones Bitwise
+## Fase 4 – Indexación Binaria y Operaciones a nivel de bits
 
 ### Análisis del problema
 
-La cuarta fase requería un string de exactamente seis caracteres. La bomba realizaba lo siguiente:
+Esta fase esperaba un string de exactamente 6 caracteres. El programa extraía los 4 bits más bajos de cada carácter y utilizaba esos valores para indexar un arreglo llamado `array.0`. La condición era que la suma resultante fuera exactamente 56.
 
-- Extraía los 4 bits menos significativos (más bajos) de cada carácter del input.
-- Sumaba los valores indexados en un arreglo denominado `array.0`, utilizando estos bits extraídos como índices.
-- La suma total debía ser exactamente 56.
-
-Para conocer el contenido del arreglo `array.0` se utilizó GDB:
+Utilizando GDB inspeccioné el contenido del arreglo:
 
 ```
 array = [2, 13, 7, 14, 5, 10, 6, 15, 1, 12, 3, 4, 11, 8, 16, 9]
 ```
 
-### Script en Python para búsqueda de soluciones
+### Uso de un script en Python
 
-Se implementó un script en Python para probar todas las combinaciones posibles de índices hasta encontrar cadenas válidas:
+Escribí otro script en Python para probar todas las combinaciones posibles de índices que cumplieran la condición:
 
 ```python
-array = [2, 13, 7, 14, 5, 10, 6, 15, 1, 12, 3, 4, 11, 8, 16, 9]
-
-for combination in all_possible_combinations(0-15, length=6):
-    total = sum(array[index] for index in combination)
-    if total == 56:
-        generate_valid_string_from_combination(combination)
+for c in product(range(16), repeat=6):
+    if sum(array[i] for i in c) == 56:
+        guardar_cadena(c)
 ```
 
-Esto generó cadenas válidas, una de las cuales fue:
+Entre varias cadenas válidas, escogí:
 
 ```
 001111
 ```
 
-Al ingresar esta cadena en el programa, se logró desactivar satisfactoriamente la fase 4.
+Esto me permitió avanzar sin problemas.
 
 ---
 
-## Conclusión General
+## Fase Secreta – Descubrimiento y resolución
 
-La resolución integral del trabajo práctico "Bomba Binaria" requirió aplicar técnicas avanzadas de ingeniería inversa, análisis profundo del código en ensamblador, depuración meticulosa con GDB y programación de scripts auxiliares en Python para simular y validar las soluciones. Cada fase presentó desafíos técnicos únicos y problemas específicos que fueron resueltos mediante un análisis meticuloso y un enfoque sistemático, demostrando el manejo práctico y efectivo de diversas herramientas y metodologías relacionadas con el análisis y la resolución de problemas complejos en contextos técnicos.
+### Encontrando la fase secreta
+
+Luego de resolver la fase 4, decidí continuar revisando el código con GDB y me encontré con una función `phase_defused` que esperaba un input adicional especial después de completar las cuatro fases.
+
+En una inspección detallada, descubrí que uno de esos inputs debía ser exactamente el string `abrete_sesamo`. Al introducir este string adicional junto con dos enteros previos, activé la fase secreta (`secret_phase`).
+
+### Analizando y resolviendo la fase secreta
+
+La función secreta solicitaba otro número entre 1 y 1000, que era usado en una búsqueda binaria recursiva llamada `fun7`. Al analizarla en detalle, encontré que esta función codificaba el camino dentro de un árbol binario:
+
+- Hacia la izquierda: multiplicaba por 2.
+- Hacia la derecha: multiplicaba por 2 y sumaba 1.
+
+Para resolver la fase, el resultado debía ser exactamente 2, lo que significaba un camino de primero a la izquierda y luego a la derecha.
+
+Inspeccioné la estructura del árbol binario en memoria con GDB y determiné que el número que cumplía con este camino era el 22. Al ingresar este valor, finalmente pude resolver la fase secreta.
+
+---
+
+## Conclusión general
+
+Este trabajo implicó un enfoque metodológico utilizando análisis del ensamblador, inspección de memoria con GDB y automatización mediante scripts en Python. Cada fase presentó desafíos específicos y requirió solucionar pequeños errores y malentendidos iniciales mediante una cuidadosa revisión. La experiencia adquirida fue valiosa, especialmente por el aprendizaje en técnicas avanzadas de debugging y análisis binario.
+
