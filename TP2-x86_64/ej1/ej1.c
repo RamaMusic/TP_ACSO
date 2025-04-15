@@ -3,26 +3,26 @@
 string_proc_list* string_proc_list_create(void){
 	string_proc_list* list = malloc(sizeof(string_proc_list));
 	if (list == NULL) return NULL;
-	list->first = NULL;
-	list->last = NULL;
+	
+	memset(list, 0, sizeof(string_proc_list));
 	return list;
 }
 
 string_proc_node* string_proc_node_create(uint8_t type, char* hash){
+	if (hash == NULL) return NULL;
+	
 	string_proc_node* node = malloc(sizeof(string_proc_node));
 	if (node == NULL) return NULL;
 
 	node->hash = hash;
-
 	node->type = type;
 	node->next = NULL;
 	node->previous = NULL;
 	return node;
 }
 
-
 void string_proc_list_add_node(string_proc_list* list, uint8_t type, char* hash){
-	if (list == NULL) return;
+	if (list == NULL || hash == NULL) return;
 
 	string_proc_node* node = string_proc_node_create(type, hash);
 	if (node == NULL) return;
@@ -30,39 +30,71 @@ void string_proc_list_add_node(string_proc_list* list, uint8_t type, char* hash)
 	if (list->first == NULL) {
 		list->first = node;
 		list->last = node;
-	} else {
-		node->previous = list->last;
-		list->last->next = node;
-		list->last = node;
+		return;
 	}
+	
+	if (list->last == NULL) {
+		free(node);
+		return;
+	}
+	
+	node->previous = list->last;
+	list->last->next = node;
+	list->last = node;
 }
 
-char* string_proc_list_concat(string_proc_list* list, uint8_t type , char* hash){
+char* string_proc_list_concat(string_proc_list* list, uint8_t type, char* hash){
 	if (list == NULL || hash == NULL) return NULL;
-
-	size_t total_len = strlen(hash);
+	
+	size_t hash_len = strlen(hash);
+	if (hash_len == 0 || hash_len > SIZE_MAX / 2) return NULL;
+	
+	size_t total_len = hash_len;
 	string_proc_node* current = list->first;
-
+	string_proc_node* visited[100] = {NULL};
+	size_t visit_count = 0;
+	
 	while (current != NULL) {
-		if (current->type == type) {
-			total_len += strlen(current->hash);
+		for (size_t i = 0; i < visit_count; i++) {
+			if (current == visited[i]) return NULL;
+		}
+		
+		if (visit_count < 100) visited[visit_count++] = current;
+		
+		if (current->type == type && current->hash != NULL) {
+			size_t node_len = strlen(current->hash);
+			if (SIZE_MAX - total_len <= node_len) return NULL;
+			total_len += node_len;
 		}
 		current = current->next;
 	}
-
+	
 	char* result = malloc(total_len + 1);
 	if (result == NULL) return NULL;
-
-	strcpy(result, hash);
+	
+	result[0] = '\0';
+	strcat(result, hash);
+	
 	current = list->first;
-
+	visit_count = 0;
+	memset(visited, 0, sizeof(visited));
+	
 	while (current != NULL) {
-		if (current->type == type) {
+		for (size_t i = 0; i < visit_count; i++) {
+			if (current == visited[i]) {
+				free(result);
+				return NULL;
+			}
+		}
+		
+		if (visit_count < 100) visited[visit_count++] = current;
+		
+		if (current->type == type && current->hash != NULL) {
 			strcat(result, current->hash);
 		}
 		current = current->next;
 	}
-
+	
 	return result;
 }
 
