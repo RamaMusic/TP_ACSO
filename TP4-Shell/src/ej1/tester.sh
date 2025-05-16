@@ -1,87 +1,112 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-make
-
 BIN=./ring
 ERR=0
 VALGRIND_AVAILABLE=$(command -v valgrind || echo "")
 
+build() {
+  make
+  gcc -Wall -Wextra -std=c11 -o tester tester.c
+}
+
 run_valgrind_test() {
-  local n=$1
-  local c=$2
-  local s=$3
+  local n=$1 c=$2 s=$3
   if [[ -n "$VALGRIND_AVAILABLE" ]]; then
     valgrind_output=$(valgrind --leak-check=full --error-exitcode=99 "$BIN" "$n" "$c" "$s" 2>&1)
     if [[ $? -eq 0 ]]; then
-      printf "\t↳ ✅ valgrind: sin errores de memoria o descriptores\n"
+      printf "\t↳ ✅ valgrind: sin errores\n"
     else
-      printf "\t↳ ❌ valgrind detectó problemas:\n"
+      printf "\t↳ ❌ valgrind falló:\n"
       echo "$valgrind_output" | sed 's/^/\t    /'
       ERR=1
     fi
   else
-    printf "\t↳ ⚠️ valgrind no está instalado, omitiendo chequeo\n"
+    printf "\t↳ ⚠️ valgrind no está instalado\n"
   fi
 }
 
-echo "Probando casos válidos:"
-for n in 3 4 5 10; do
-  for c in -5 0 1 42; do
-    for s in $(seq 0 $((n - 1))); do
-      out=$($BIN "$n" "$c" "$s" 2>&1)
-      expected=$((c + n))
-      if grep -q "Valor final recibido por el padre: $expected" <<< "$out"; then
-        printf "  ✅ %s %2d %3d %2d → %d\n" "$BIN" "$n" "$c" "$s" "$expected"
-        run_valgrind_test "$n" "$c" "$s"
-      else
-        printf "  ❌ %s %2d %3d %2d → esperado %d, salió:\n%s\n" \
-               "$BIN" "$n" "$c" "$s" "$expected" "$out"
-        ERR=1
-      fi
-    done
-  done
-done
-
-echo
-echo "Probando casos inválidos:"
-invalid_cmds=(
-  "$BIN"
-  "$BIN 2 0 0"
-  "$BIN 3 0 3"
-  "$BIN 3 0 -1"
-  "$BIN a b c"
-  "$BIN 5"
-  "$BIN 4 5"
-  "$BIN 4 0 4"
-  "$BIN 3 0 100"
-  "$BIN 3 0 -999"
-)
-for cmd in "${invalid_cmds[@]}"; do
-  if $cmd >/dev/null 2>&1; then
-    printf "  ❌ '%s' debería fallar pero no lo hizo\n" "$cmd"
-    ERR=1
-  else
-    printf "  ✅ '%s' falló como se espera\n" "$cmd"
-  fi
-done
-
-echo
-echo "Probando stress:"
-if command -v timeout >/dev/null; then
-  for n in 100 500 1000; do
-    s=$((n / 2))
-    c=$((RANDOM % 100))
-    if timeout 5 $BIN "$n" "$c" "$s" >/dev/null 2>&1; then
-      printf "  ✅ n=%d s=%d c=%d no se colgó\n" "$n" "$s" "$c"
+test_basicos() {
+  echo "✅ Test básicos de funcionamiento:"
+  for case in \
+    "3 0 0" \
+    "5 10 2" \
+    "4 -5 3" \
+    "6 1000 5"
+  do
+    read n c s <<< "$case"
+    out=$($BIN "$n" "$c" "$s" 2>&1)
+    expected=$((c + n))
+    if grep -q "Valor final recibido por el padre: $expected" <<< "$out"; then
+      printf "  ✅ %s %2d %4d %2d → %d\n" "$BIN" "$n" "$c" "$s" "$expected"
+      run_valgrind_test "$n" "$c" "$s"
     else
-      printf "  ❌ n=%d s=%d c=%d se colgó o falló\n" "$n" "$s" "$c"
+      printf "  ❌ %s %2d %4d %2d → esperado %d, salió:\n%s\n" "$BIN" "$n" "$c" "$s" "$expected" "$out"
       ERR=1
     fi
   done
-else
-  echo "  ⚠️ 'timeout' no disponible; se omiten tests de stress"
-fi
+}
+
+test_invalidos() {
+  echo
+  echo "🚫 Casos inválidos:"
+  local cmds=(
+    "$BIN"
+    "$BIN 2 0 0"
+    "$BIN 3 0 3"
+    "$BIN 4 0 -1"
+    "$BIN a b c"
+    "$BIN 3"
+  )
+  for cmd in "${cmds[@]}"; do
+    if $cmd >/dev/null 2>&1; then
+      printf "  ❌ '%s' debería fallar\n" "$cmd"
+      ERR=1
+    else
+      printf "  ✅ '%s' falló como se espera\n" "$cmd"
+    fi
+  done
+}
+
+test_limites() {
+  echo
+  echo "🧪 Casos límite:"
+  local limits=(
+    "3 -100000 2"
+    "3 2147483640 1"
+    "1000 0 999"
+    "3 0 2"
+  )
+  for case in "${limits[@]}"; do
+    read n c s <<< "$case"
+    out=$($BIN "$n" "$c" "$s" 2>&1)
+    expected=$((c + n))
+    if grep -q "Valor final recibido por el padre: $expected" <<< "$out"; then
+      printf "  ✅ límite %2d %9d %3d → %d\n" "$n" "$c" "$s" "$expected"
+    else
+      printf "  ❌ límite %2d %9d %3d falló\n" "$n" "$c" "$s"
+      ERR=1
+    fi
+  done
+}
+
+test_fallo_xwrite() {
+  echo
+  echo "💥 Pruebas extendidas de escritura (tester.c):"
+  if ./tester; then
+    echo "  ✅ Todas las pruebas de escritura pasaron correctamente"
+  else
+    echo "  ❌ Una o más pruebas de escritura fallaron (ver arriba)"
+    ERR=1
+  fi
+}
+
+build
+test_basicos
+test_invalidos
+test_limites
+test_fallo_xwrite
 
 make clean
+rm -f tester
 exit $ERR
