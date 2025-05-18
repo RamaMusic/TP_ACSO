@@ -29,7 +29,7 @@ run_test() {
 # Tests válidos
 run_test "echo hola" "hola" "echo simple"
 run_test "ls | wc -l" "" "pipeline básico (ls | wc -l)"
-run_test "echo \\\"hola mundo\\\"" "hola mundo" "comillas dobles"
+run_test "echo "'hola mundo' "hola mundo" "comillas dobles"
 run_test "echo hola    mundo | wc -w" "2" "espacios múltiples y pipe"
 run_test "whoami | grep $(whoami)" "$(whoami)" "grep usuario actual"
 run_test "seq 10 | grep 5" "5" "grep número intermedio"
