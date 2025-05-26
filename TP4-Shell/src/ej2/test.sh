@@ -65,7 +65,7 @@ run_test "   echo    prueba   " "prueba" "comando con espacios iniciales y final
 run_test "| echo hola" "" "pipe al inicio (debería fallar silenciosamente)"
 run_test "echo hola |" "" "pipe al final (debería fallar silenciosamente)"
 run_test "echo hola || wc" "" "doble pipe sin comando (debería fallar silenciosamente)"
-run_test "inexistentecomando" "execvp" "comando inexistente"
+run_test "inexistentecomando" "inexistentecomando: command not found" "comando inexistente"
 run_test "" "" "línea vacía"
 run_test "     " "" "línea con solo espacios"
 run_test "exit" "" "comando de salida"

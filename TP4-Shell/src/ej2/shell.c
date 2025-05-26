@@ -3,160 +3,121 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <sys/wait.h>
-#include <fcntl.h>
 #include <ctype.h>
 
-#define MAX_LINEA 1024
-#define MAX_COMANDOS 200
-#define MAX_ARGS 64
+#define MAX_LINE   1024
+#define MAX_CMDS   200
+#define MAX_ARGS   64
 
-// Elimina espacios iniciales y finales de una string
+// Elimina espacios en blanco al inicio y al final in-place
+// Retorna un puntero al primer caracter que no es espacio
 char *trim(char *s) {
-    while (isspace(*s)) s++;
+    while (isspace((unsigned char)*s)) s++;
     char *end = s + strlen(s) - 1;
-    while (end > s && isspace(*end)) *end-- = '\0';
+    while (end > s && isspace((unsigned char)*end)) *end-- = '\0';
     return s;
 }
 
-// Lee una línea desde stdin y elimina el \n final
-void leer_linea(char *buffer, size_t size) {
-    if (fgets(buffer, size, stdin) == NULL) {
-        perror("fgets");
-        exit(EXIT_FAILURE);
-    }
-    buffer[strcspn(buffer, "\n")] = '\0';
+// Lee una línea de stdin y la guarda en buf (longitud máxima MAX_LINE)
+void read_line(char *buf) {
+    if (!fgets(buf, MAX_LINE, stdin)) exit(0);
+    buf[strcspn(buf, "\n")] = '\0';
 }
 
-// Divide una línea en subcomandos separados por pipes
-int dividir_por_pipes(char *linea, char **comandos) {
-    int count = 0;
-    char *token = strtok(linea, "|");
-    while (token != NULL && count < MAX_COMANDOS) {
-        while (isspace(*token)) token++;
-        comandos[count++] = strdup(token);
-        token = strtok(NULL, "|");
-    }
-    return count;
+// Devuelve 1 si hay error de sintaxis: pipe al principio/final o si hay "||"
+int bad_syntax(const char *line) {
+    int len = strlen(line);
+    return len == 0
+        || line[0] == '|' 
+        || line[len-1] == '|' 
+        || strstr(line, "||");
 }
 
-// Divide un comando en argumentos, respetando comillas dobles
-char **tokenizar_comando(char *cmd) {
-    char **argv = calloc(MAX_ARGS, sizeof(char *));
-    int j = 0;
+// Separa la línea por '|' en commands[] y devuelve la cantidad
+int split_pipes(char *line, char **commands) {
+    int cnt = 0;
+    for (char *tok = strtok(line, "|"); tok && cnt < MAX_CMDS; tok = strtok(NULL, "|")) {
+        while (isspace((unsigned char)*tok)) tok++;
+        commands[cnt++] = strdup(tok);
+    }
+    return cnt;
+}
 
-    while (*cmd != '\0') {
-        while (isspace(*cmd)) cmd++;
-        if (*cmd == '\0') break;
-
-        char *arg;
+// Separa un comando en argv[], manejando comillas dobles
+char **split_args(char *cmd) {
+    char **argv = calloc(MAX_ARGS, sizeof(char*));
+    int i = 0;
+    while (*cmd) {
+        while (isspace((unsigned char)*cmd)) cmd++;
+        if (!*cmd) break;
+        char *start = cmd;
         if (*cmd == '"') {
-            cmd++;
-            arg = cmd;
+            start = ++cmd;
             while (*cmd && *cmd != '"') cmd++;
         } else {
-            arg = cmd;
-            while (*cmd && !isspace(*cmd)) cmd++;
+            while (*cmd && !isspace((unsigned char)*cmd)) cmd++;
         }
-
         if (*cmd) *cmd++ = '\0';
-        argv[j++] = strdup(arg);
+        argv[i++] = strdup(start);
     }
-    argv[j] = NULL;
+    argv[i] = NULL;
     return argv;
 }
 
-// Ejecuta una secuencia de comandos conectados por pipes
-void ejecutar_pipeline(char ***argvs, int num_comandos) {
-    int in_fd = 0, fd[2];
-
-    for (int i = 0; i < num_comandos; i++) {
-        if (i < num_comandos - 1 && pipe(fd) < 0) {
-            perror("pipe");
-            exit(EXIT_FAILURE);
-        }
-
+// Ejecuta comandos conectados por pipes; args_list[i] es el argv para el comando i
+void run_pipeline(char ***args_list, int cmd_count) {
+    int in_fd = STDIN_FILENO, fd[2];
+    for (int i = 0; i < cmd_count; ++i) {
+        if (i < cmd_count - 1 && pipe(fd) < 0) { perror("pipe"); exit(1); }
         pid_t pid = fork();
-        if (pid < 0) {
-            perror("fork");
-            exit(EXIT_FAILURE);
-        }
-
+        if (pid < 0) { perror("fork"); exit(1); }
         if (pid == 0) {
-            if (i > 0) {
-                dup2(in_fd, STDIN_FILENO);
-                close(in_fd);
-            }
-            if (i < num_comandos - 1) {
-                close(fd[0]);
-                dup2(fd[1], STDOUT_FILENO);
-                close(fd[1]);
-            }
-            execvp(argvs[i][0], argvs[i]);
-            fprintf(stderr, "%s: comando no encontrado\n", argvs[i][0]);
-            perror("execvp");
-            exit(EXIT_FAILURE);
+            if (in_fd != STDIN_FILENO) dup2(in_fd, STDIN_FILENO), close(in_fd);
+            if (i < cmd_count - 1) close(fd[0]), dup2(fd[1], STDOUT_FILENO), close(fd[1]);
+            execvp(args_list[i][0], args_list[i]);
+            fprintf(stderr, "%s: command not found\n", args_list[i][0]);
+            exit(1);
         }
-
-        if (i > 0) close(in_fd);
-        if (i < num_comandos - 1) {
-            close(fd[1]);
-            in_fd = fd[0];
-        }
+        if (in_fd != STDIN_FILENO) close(in_fd);
+        if (i < cmd_count - 1) { close(fd[1]); in_fd = fd[0]; }
     }
-
-    for (int i = 0; i < num_comandos; i++) {
-        wait(NULL);
-    }
+    while (wait(NULL) > 0);
 }
 
-// Libera la memoria reservada para los argumentos y comandos
-void liberar_memoria(char ***argvs, char **comandos, int num_comandos) {
-    for (int i = 0; i < num_comandos; i++) {
-        for (int j = 0; argvs[i][j]; j++) {
-            free(argvs[i][j]);
-        }
-        free(argvs[i]);
-        free(comandos[i]);
+// Libera la memoria para commands[] y args_list[][]
+void free_resources(char ***args_list, char **commands, int cmd_count) {
+    for (int i = 0; i < cmd_count; ++i) {
+        for (int j = 0; args_list[i][j]; ++j) free(args_list[i][j]);
+        free(args_list[i]);
+        free(commands[i]);
     }
-    free(argvs);
+    free(args_list);
 }
 
-int main() {
-    char buffer[MAX_LINEA];
-    char *comandos[MAX_COMANDOS];
+int main(void) {
+    char line_buf[MAX_LINE];
+    char *commands[MAX_CMDS];
 
     while (1) {
-        printf("Shell> ");
-        fflush(stdout);
-
-        leer_linea(buffer, sizeof(buffer));
-        char *linea = trim(buffer);
-
-        if (strcmp(linea, "exit") == 0) break;
-
-        // Validación básica de sintaxis
-        if (linea[0] == '|' || linea[strlen(linea) - 1] == '|') {
-            fprintf(stderr, "Error de sintaxis: pipe al inicio o al final\n");
-            continue;
-        }
-        if (strstr(linea, "||")) {
-            fprintf(stderr, "Error de sintaxis: pipes duplicados sin comando entre medio\n");
+        printf("Shell> "); fflush(stdout);
+        read_line(line_buf);
+        char *line = trim(line_buf);
+        if (strcmp(line, "exit") == 0) break;
+        if (bad_syntax(line)) {
+            fprintf(stderr, "Syntax error\n");
             continue;
         }
 
-        int num_comandos = dividir_por_pipes(linea, comandos);
-        if (num_comandos == 0) continue;
+        int cmd_count = split_pipes(line, commands);
+        if (!cmd_count) continue;
 
-        char ***argvs = malloc(num_comandos * sizeof(char **));
-        for (int i = 0; i < num_comandos; i++) {
-            argvs[i] = tokenizar_comando(comandos[i]);
-        }
+        char ***args_list = malloc(cmd_count * sizeof(char**));
+        for (int i = 0; i < cmd_count; ++i)
+            args_list[i] = split_args(commands[i]);
 
-        ejecutar_pipeline(argvs, num_comandos);
-        liberar_memoria(argvs, comandos, num_comandos);
+        run_pipeline(args_list, cmd_count);
+        free_resources(args_list, commands, cmd_count);
     }
-
     return 0;
 }
