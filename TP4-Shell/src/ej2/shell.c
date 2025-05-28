@@ -8,7 +8,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-#define MAX_LINE 1024
+#define MAX_LINE 8192
 #define MAX_CMDS 200
 #define MAX_ARGS 64
 
@@ -69,7 +69,7 @@ int split_pipeline(char *line, char **commands) {
 }
 
 char **parse_args(char *cmd) {
-    char **argv = calloc(MAX_ARGS + 1, sizeof(char*));
+    char **argv = calloc(MAX_ARGS + 1, sizeof(char *));
     int i = 0;
 
     while (*cmd) {
@@ -93,8 +93,10 @@ char **parse_args(char *cmd) {
             while (*cmd && !isspace((unsigned char)*cmd)) cmd++;
         }
 
-        if (*cmd) *cmd++ = '\0';
+        char saved = *cmd;
+        *cmd = '\0';
         argv[i++] = strdup(start);
+        if (saved) cmd++;
     }
 
     argv[i] = NULL;

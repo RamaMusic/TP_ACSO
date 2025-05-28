@@ -99,6 +99,27 @@ run_test "seq 100 | grep 5 | wc -l | cat | cat | cat" "19" "Pipeline largo con m
 run_test "echo $(seq -s ' ' 1 63)" "63" "Muchos argumentos (exacto MAX_ARGS)"
 run_test "echo $(seq -s ' ' 1 64)" "Too many arguments" "Muchos argumentos (MAX_ARGS+1)"
 
+# ==== TESTS ADICIONALES Y EXTRA CREDIT ====
+
+run_test "echo \"\"" "" "Echo con argumento vacío entre comillas"
+run_test "echo hola	| grep hola" "hola" "Pipe con tabulación como separador"
+run_test "echo hola | grep -v hola" "" "Grep con salida negativa (vacía)"
+run_test "cat /dev/null | wc -l" "0" "Cat de /dev/null con conteo de líneas"
+run_test "yes | head -n 5" $'y\ny\ny\ny\ny' "Yes truncado por head"
+run_test "/bin/echo hola" "hola" "Comando con ruta absoluta"
+run_test "ls | sort | uniq" "" "Pipeline real múltiple sin wc (output no validado)"
+run_test "echo hola | grep -E \".png\$|.zip\$\"" "" "Extra Credit: grep con regex compuesta"
+
+# Casos de error o sintaxis maliciosa
+run_test "echo \"hola" "hola" "Comillas abiertas sin cerrar"
+run_test "exit | wc" "" "Exit dentro de pipeline (debe ejecutarse completo)"
+run_test "| | | |" "Syntax error" "Pipes múltiples vacíos"
+run_test "|||" "Syntax error" "Tres pipes consecutivos"
+run_test "| | hola |" "Syntax error" "Comando encerrado entre pipes vacíos"
+
+# Casos límite extremos
+PIPE_CHAIN=$(printf 'grep . | %.0s' {1..199}; echo tail -n 1)
+run_test "cat $TEST_FILE | $PIPE_CHAIN" "documento.zip" "Pipeline de 200 procesos no bloqueante con grep"
 
 # ==== RESUMEN FINAL ====
 
