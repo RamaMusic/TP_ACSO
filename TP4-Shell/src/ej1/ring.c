@@ -82,6 +82,8 @@ void parent_process_logic(int n, int ring[][2], int p2c[2], int c2p[2], int init
 
 int main(int argc, char **argv)
 {
+    setbuf(stdout, NULL);  // stdout sin buffering
+
     if (argc != 4) {
         printf("Uso: anillo <n> <c> <s>\n");
         exit(1);
@@ -98,7 +100,8 @@ int main(int argc, char **argv)
 
     printf("Se crearán %d procesos, se enviará el caracter %d desde proceso %d\n",
            n, initial_val, start);
-
+    fflush(stdout);
+    
     int ring[n][2], p2c[2], c2p[2];
     create_ring_pipes(ring, n);
     if (pipe(p2c) == -1 || pipe(c2p) == -1) {

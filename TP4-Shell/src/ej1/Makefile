@@ -1,13 +1,18 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -std=c11
+CC      := gcc
+CFLAGS  := -Wall -Wextra -std=c11
 
-TARGET = ring
-SRC = ring.c
+.PHONY: all clean test
 
-all: $(TARGET)
+all: ring tester
 
-$(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $^
+ring: ring.c
+	$(CC) $(CFLAGS) -o $@ ring.c
+
+tester: tester.c
+	$(CC) $(CFLAGS) -o $@ tester.c
+
+test: ring tester
+	./tester.sh
 
 clean:
-	rm -f $(TARGET)
+	rm -f ring tester
