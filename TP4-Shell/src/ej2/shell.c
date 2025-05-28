@@ -90,11 +90,15 @@ char **split_args(char *cmd) {
 
 void run_pipeline(char ***args_list, int cmd_count) {
     int in_fd = STDIN_FILENO, fd[2];
+    pid_t pids[MAX_CMDS];
+
     for (int i = 0; i < cmd_count; ++i) {
         if (i < cmd_count - 1 && pipe(fd) < 0) { perror("pipe"); exit(1); }
+
         pid_t pid = fork();
         if (pid < 0) { perror("fork"); exit(1); }
-        if (pid == 0) {
+
+        if (pid == 0) {  // Proceso hijo
             if (in_fd != STDIN_FILENO) {
                 dup2(in_fd, STDIN_FILENO);
                 close(in_fd);
@@ -109,14 +113,24 @@ void run_pipeline(char ***args_list, int cmd_count) {
             free_args(args_list[i]);
             exit(1);
         }
+
+        pids[i] = pid;
+
         if (in_fd != STDIN_FILENO) close(in_fd);
         if (i < cmd_count - 1) {
             close(fd[1]);
             in_fd = fd[0];
         }
     }
-    while (wait(NULL) > 0);
+
+    for (int i = 0; i < cmd_count; ++i) {
+        int status;
+        if (waitpid(pids[i], &status, 0) < 0) {
+            perror("waitpid");
+        }
+    }
 }
+
 
 void free_resources(char ***args_list, char **commands, int cmd_count) {
     for (int i = 0; i < cmd_count; ++i) {
