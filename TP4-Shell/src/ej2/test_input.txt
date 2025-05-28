@@ -1,0 +1,2 @@
+ls test_files | grep ".png .zip"
+exit
