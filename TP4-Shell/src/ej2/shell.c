@@ -62,11 +62,26 @@ void setup_signals(void) {
 
 int split_pipeline(char *line, char **commands) {
     int count = 0;
-    for (char *tok = strtok(line, "|"); tok && count < MAX_CMDS; tok = strtok(NULL, "|")) {
-        commands[count++] = strdup(trim(tok));
+    char *start = line;
+    int in_quote = 0;
+
+    for (char *p = line; ; ++p) {
+        if (*p == '"') {
+            in_quote = !in_quote;
+        } else if (*p == '|' && !in_quote) {
+            *p = '\0';
+            commands[count++] = strdup(trim(start));
+            start = p + 1;
+            if (count >= MAX_CMDS) break;
+        } else if (*p == '\0') {
+            commands[count++] = strdup(trim(start));
+            break;
+        }
     }
+
     return count;
 }
+
 
 char **parse_args(char *cmd) {
     char **argv = calloc(MAX_ARGS + 1, sizeof(char *));
@@ -84,7 +99,10 @@ char **parse_args(char *cmd) {
         }
 
         char *start;
+        int quoted = 0;
+
         if (*cmd == '"') {
+            quoted = 1;
             cmd++;
             start = cmd;
             while (*cmd && *cmd != '"') cmd++;
@@ -96,13 +114,13 @@ char **parse_args(char *cmd) {
         char saved = *cmd;
         *cmd = '\0';
         argv[i++] = strdup(start);
-        if (saved) cmd++;
+        if (quoted && saved == '"') cmd++;  // saltear cierre de comilla
+        else if (!quoted && saved) cmd++;
     }
 
     argv[i] = NULL;
     return argv;
 }
-
 
 void free_args(char **args) {
     if (!args) return;
