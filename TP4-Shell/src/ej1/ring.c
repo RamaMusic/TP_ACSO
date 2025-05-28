@@ -7,6 +7,9 @@
 
 enum { READ = 0, WRITE = 1 };
 
+/**
+ * Lee exactamente `size` bytes desde un descriptor de archivo o aborta si falla.
+ */
 void xread(int fd, void *buf, size_t size) {
     size_t total = 0;
     while (total < size) {
@@ -19,6 +22,9 @@ void xread(int fd, void *buf, size_t size) {
     }
 }
 
+/**
+ * Escribe exactamente `size` bytes a un descriptor de archivo o aborta si falla.
+ */
 void xwrite(int fd, void *buf, size_t size) {
     size_t total = 0;
     while (total < size) {
@@ -31,6 +37,9 @@ void xwrite(int fd, void *buf, size_t size) {
     }
 }
 
+/**
+ * Crea `n` pipes para formar el anillo de comunicación.
+ */
 void create_ring_pipes(int ring[][2], int n) {
     for (int i = 0; i < n; i++) {
         if (pipe(ring[i]) == -1) {
@@ -41,6 +50,9 @@ void create_ring_pipes(int ring[][2], int n) {
     }
 }
 
+/**
+ * Cierra todos los extremos de los pipes que un proceso no necesita.
+ */
 void close_unused_pipes(int ring[][2], int n, int me) {
     for (int i = 0; i < n; i++) {
         if (i != me) close(ring[i][WRITE]);
@@ -48,8 +60,10 @@ void close_unused_pipes(int ring[][2], int n, int me) {
     }
 }
 
-void child_process_logic(int me, int n, int start,
-                         int ring[][2], int p2c[2], int c2p[2]) {
+/**
+ * Lógica ejecutada por cada hijo: recibe, incrementa y reenvía el valor.
+ */
+void child_process_logic(int me, int n, int start, int ring[][2], int p2c[2], int c2p[2]) {
     close_unused_pipes(ring, n, me);
 
     if (me == start) {
@@ -61,7 +75,7 @@ void child_process_logic(int me, int n, int start,
     }
 
     int val;
-    int in_fd = (me == start) ? p2c[READ] : ring[(me - 1 + n) % n][READ];
+    int in_fd  = (me == start) ? p2c[READ] : ring[(me - 1 + n) % n][READ];
     int out_fd = ring[me][WRITE];
 
     xread(in_fd, &val, sizeof(val));
@@ -76,16 +90,20 @@ void child_process_logic(int me, int n, int start,
     exit(0);
 }
 
+/**
+ * Lógica del proceso padre: envía valor inicial y recibe resultado final.
+ */
 void parent_process_logic(int n, int ring[][2], int p2c[2], int c2p[2], int initial_val) {
     for (int i = 0; i < n; i++) {
         close(ring[i][READ]);
         close(ring[i][WRITE]);
     }
+
     close(p2c[READ]);
     close(c2p[WRITE]);
 
     xwrite(p2c[WRITE], &initial_val, sizeof(initial_val));
-    close(p2c[WRITE]);  // muy importante para evitar bloqueos
+    close(p2c[WRITE]);
 
     xread(c2p[READ], &initial_val, sizeof(initial_val));
     close(c2p[READ]);
@@ -93,9 +111,11 @@ void parent_process_logic(int n, int ring[][2], int p2c[2], int c2p[2], int init
     printf("Valor final recibido por el padre: %d\n", initial_val);
 }
 
-int main(int argc, char **argv)
-{
-    setbuf(stdout, NULL);  // stdout sin buffering
+/**
+ * Programa principal: valida entrada, crea procesos, ejecuta lógica de anillo.
+ */
+int main(int argc, char **argv) {
+    setbuf(stdout, NULL);
 
     if (argc != 4) {
         fprintf(stderr, "Uso: %s <n> <c> <s>\n", argv[0]);
@@ -111,7 +131,6 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    // Validación de overflow
     if (initial_val > INT_MAX - n) {
         fprintf(stderr, "Error: desborde positivo (initial_val + n > INT_MAX)\n");
         exit(1);
@@ -126,6 +145,7 @@ int main(int argc, char **argv)
 
     int ring[n][2], p2c[2], c2p[2];
     create_ring_pipes(ring, n);
+
     if (pipe(p2c) == -1 || pipe(c2p) == -1) {
         perror("pipe extra");
         exit(1);
@@ -151,4 +171,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-
