@@ -46,7 +46,7 @@ run_test() {
 
     ########## FUNCIONAL ##########
     output=$(echo -e "$input\nexit" | ./shell 2>&1)
-    output=$(echo "$output" | sed '/^Shell> *$/d')
+    output=$(echo "$output" | sed '/^Shell started/d;/^Shell> *$/d;/Shell terminated/d')
     if echo "$output" | grep -q "$expected"; then
         echo -e "   ${BLUE}Salida: ${NC} $output"
         echo -e "   ${GREEN}✅ Funcionalidad PASÓ${NC}"

@@ -4,11 +4,19 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <ctype.h>
+#include <errno.h>
 
-#define MAX_LINE   1024
-#define MAX_CMDS   200
-#define MAX_ARGS   64  // número máximo de argumentos válidos (índices 0..63)
+#define MAX_LINE 1024
+#define MAX_CMDS 200
+#define MAX_ARGS 64
+
+volatile sig_atomic_t shell_running = 1;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utils
+// ─────────────────────────────────────────────────────────────────────────────
 
 char *trim(char *s) {
     while (isspace((unsigned char)*s)) s++;
@@ -17,14 +25,9 @@ char *trim(char *s) {
     return s;
 }
 
-void read_line(char *buf) {
-    if (!fgets(buf, MAX_LINE, stdin)) exit(0);
-    buf[strcspn(buf, "\n")] = '\0';
-}
-
-int bad_syntax(const char *line) {
+int is_syntax_error(const char *line) {
     int len = strlen(line);
-    if (len == 0 || line[0] == '|' || line[len-1] == '|') return 1;
+    if (len == 0 || line[0] == '|' || line[len - 1] == '|') return 1;
     if (strstr(line, "||")) return 1;
     for (int i = 0; i < len - 1; ++i) {
         if (line[i] == '|') {
@@ -36,32 +39,43 @@ int bad_syntax(const char *line) {
     return 0;
 }
 
-int split_pipes(char *line, char **commands) {
+void signal_handler(int sig) {
+    (void)sig;
+    shell_running = 0;
+    
+    const char *msg = "\nShell shutting down...\n";
+    write(STDOUT_FILENO, msg, strlen(msg));
+}
+
+void setup_signals(void) {
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parsing
+// ─────────────────────────────────────────────────────────────────────────────
+
+int split_pipeline(char *line, char **commands) {
     int count = 0;
     for (char *tok = strtok(line, "|"); tok && count < MAX_CMDS; tok = strtok(NULL, "|")) {
-        while (isspace((unsigned char)*tok)) tok++;
-        commands[count++] = strdup(tok);
+        commands[count++] = strdup(trim(tok));
     }
     return count;
 }
 
-void free_args(char **args) {
-    if (!args) return;
-    for (int i = 0; args[i]; ++i) free(args[i]);
-    free(args);
-}
-
-char **split_args(char *cmd) {
-    // Reservo MAX_ARGS+1 para el NULL final
+char **parse_args(char *cmd) {
     char **argv = calloc(MAX_ARGS + 1, sizeof(char*));
     int i = 0;
 
     while (*cmd) {
-        // Saltar espacios
         while (isspace((unsigned char)*cmd)) cmd++;
         if (!*cmd) break;
 
-        // Si ya tengo MAX_ARGS argumentos, error
         if (i >= MAX_ARGS) {
             fprintf(stderr, "Too many arguments\n");
             for (int k = 0; k < i; ++k) free(argv[k]);
@@ -69,7 +83,6 @@ char **split_args(char *cmd) {
             return NULL;
         }
 
-        // Determinar token
         char *start;
         if (*cmd == '"') {
             cmd++;
@@ -80,23 +93,40 @@ char **split_args(char *cmd) {
             while (*cmd && !isspace((unsigned char)*cmd)) cmd++;
         }
 
-        // Cerrar token
         if (*cmd) *cmd++ = '\0';
         argv[i++] = strdup(start);
     }
+
     argv[i] = NULL;
     return argv;
 }
+
+
+void free_args(char **args) {
+    if (!args) return;
+    for (int i = 0; args[i]; ++i) free(args[i]);
+    free(args);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ejecución
+// ─────────────────────────────────────────────────────────────────────────────
 
 void run_pipeline(char ***args_list, int cmd_count) {
     int in_fd = STDIN_FILENO, fd[2];
     pid_t pids[MAX_CMDS];
 
     for (int i = 0; i < cmd_count; ++i) {
-        if (i < cmd_count - 1 && pipe(fd) < 0) { perror("pipe"); exit(1); }
+        if (i < cmd_count - 1 && pipe(fd) < 0) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
 
         pid_t pid = fork();
-        if (pid < 0) { perror("fork"); exit(1); }
+        if (pid < 0) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
 
         if (pid == 0) {  // Proceso hijo
             if (in_fd != STDIN_FILENO) {
@@ -110,10 +140,10 @@ void run_pipeline(char ***args_list, int cmd_count) {
             }
             execvp(args_list[i][0], args_list[i]);
             fprintf(stderr, "command not found\n");
-            free_args(args_list[i]);
-            exit(1);
+            exit(EXIT_FAILURE);
         }
 
+        // Proceso padre
         pids[i] = pid;
 
         if (in_fd != STDIN_FILENO) close(in_fd);
@@ -132,51 +162,52 @@ void run_pipeline(char ***args_list, int cmd_count) {
 }
 
 
-void free_resources(char ***args_list, char **commands, int cmd_count) {
+void free_all(char ***args_list, char **commands, int cmd_count) {
     for (int i = 0; i < cmd_count; ++i) {
-        if (args_list[i]) {
-            for (int j = 0; args_list[i][j]; ++j) free(args_list[i][j]);
-            free(args_list[i]);
-        }
+        free_args(args_list[i]);
         free(commands[i]);
     }
     free(args_list);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Loop principal
+// ─────────────────────────────────────────────────────────────────────────────
+
 int main(void) {
     char line_buf[MAX_LINE];
     char *commands[MAX_CMDS];
 
-    while (1) {
+    setup_signals();
+    printf("Shell started. Type 'exit' to quit.\n");
+
+    while (shell_running) {
         printf("Shell> "); fflush(stdout);
-        read_line(line_buf);
+        if (!fgets(line_buf, sizeof(line_buf), stdin)) break;
+
         char *line = trim(line_buf);
         if (strcmp(line, "exit") == 0) break;
-        if (bad_syntax(line)) {
+        if (is_syntax_error(line)) {
             fprintf(stderr, "Syntax error\n");
             continue;
         }
 
-        int cmd_count = split_pipes(line, commands);
+        int cmd_count = split_pipeline(line, commands);
         if (!cmd_count) continue;
 
         char ***args_list = malloc(cmd_count * sizeof(char**));
         int valid = 1;
         for (int i = 0; i < cmd_count; ++i) {
-            args_list[i] = split_args(commands[i]);
+            args_list[i] = parse_args(commands[i]);
             if (!args_list[i]) {
-                // fallo por demasiados args: limpiar todo
                 valid = 0;
-                for (int k = 0; k < i; ++k) free_args(args_list[k]);
-                for (int k = 0; k <= i; ++k) free(commands[k]);
-                free(args_list);
                 break;
             }
         }
-        if (!valid) continue;
-
-        run_pipeline(args_list, cmd_count);
-        free_resources(args_list, commands, cmd_count);
+        if (valid) run_pipeline(args_list, cmd_count);
+        free_all(args_list, commands, cmd_count);
     }
+
+    printf("Shell terminated.\n");
     return 0;
 }
