@@ -1,4 +1,5 @@
 #!/bin/bash
+set -u  # Solo activamos error por variables no definidas (no usamos `-e` para evitar abortos silenciosos)
 
 # ==== CONFIGURACIÓN ====
 BIN=./ring
@@ -10,6 +11,7 @@ FAILED=0
 MEM_CLEAN=0
 MEM_FAIL=0
 VERBOSE=false
+[[ "${1:-}" == "--verbose" ]] && VERBOSE=true
 
 # ==== COLORES ====
 RED='\033[0;31m'
@@ -36,7 +38,6 @@ run_test() {
     echo -e "   ${BLUE}Comando: $BIN $n $c $s${NC}"
     echo -e "   ${BLUE}Esperado: Valor final recibido por el padre: $expected${NC}"
 
-    # Funcionalidad
     if output=$($BIN "$n" "$c" "$s" 2>&1); then
         if echo "$output" | grep -q "Valor final recibido por el padre: $expected"; then
             echo -e "   ${GREEN}✅ Funcionalidad PASÓ${NC}"
@@ -51,7 +52,6 @@ run_test() {
         ((FAILED++))
     fi
 
-    # Valgrind solo si el número de procesos es razonable
     if [ "$n" -ge 500 ]; then
         echo -e "   ${YELLOW}⚠️  Saltando Valgrind por stress test (n=$n)${NC}"
     elif [[ -n "$VALGRIND_AVAILABLE" ]]; then
@@ -109,6 +109,30 @@ run_test 3  2147483640 1 2147483643 "Límite: valor inicial cercano a INT_MAX"
 run_test 500 0      499 500         "Límite seguro: n=500, start=499"
 run_test 3   0        2   3          "Límite: start=2 en n=3"
 
+run_test 5  42  4  47  "Start desde el último proceso"
+run_test 3  1   2  4   "Anillo mínimo: n=3, start=n-1"
+
+echo -e "${YELLOW}🔹 Validación de límites de enteros:${NC}"
+# INT_MAX exacto
+run_test 10 2147483637 0 2147483647 "Límite exacto: c + n = INT_MAX"
+# INT_MAX + 1 → debería fallar
+run_invalid "$BIN 10 2147483638 0" "Desborde positivo: c + n > INT_MAX"
+# INT_MIN exacto
+run_test 10 -2147483638 0 -2147483628 "Límite exacto: c + n = INT_MIN + n"
+# INT_MIN - 1 → debería fallar
+run_invalid "$BIN 10 -2147483639 0" "Desborde negativo: c + n < INT_MIN"
+
+((TOTAL++))
+echo -e "${YELLOW}➤ Test $TOTAL: Detección de deadlock con timeout${NC}"
+echo -e "   ${BLUE}Comando: timeout 2s $BIN 3 0 0${NC}"
+if timeout 2s $BIN 3 0 0 >/dev/null 2>&1; then
+    echo -e "   ${GREEN}✅ Terminó correctamente (sin deadlock)${NC}"
+    ((PASSED++))
+else
+    echo -e "   ${RED}❌ Timeout o error detectado (posible deadlock)${NC}"
+    ((FAILED++))
+fi
+
 echo -e "${YELLOW}🔹 Pruebas extendidas de escritura/lectura (tester.c):${NC}"
 ((TOTAL++))
 gcc -Wall -Wextra -std=c11 -o tester tester.c
@@ -127,7 +151,7 @@ else
             echo -e "   ${RED}❌ tester.c falló o tiene memory leaks${NC}"
             ((FAILED++))
             ((MEM_FAIL++))
-            if [ "$VERBOSE" = true ]; then cat "$VALGRIND_OUT"; fi
+            [ "$VERBOSE" = true ] && cat "$VALGRIND_OUT"
         fi
     else
         if ./tester; then
@@ -139,7 +163,6 @@ else
         fi
     fi
 fi
-
 
 echo -e "${YELLOW}🔹 Stress test sin Valgrind (n=1000):${NC}"
 run_test 1000 0 999 1000 "Stress test: anillo de 1000 procesos"
@@ -156,6 +179,6 @@ echo -e "${BLUE}============================================${NC}"
 
 # ==== LIMPIEZA ====
 make clean >/dev/null
-rm -f "$VALGRIND_OUT"
+rm -f "$VALGRIND_OUT" tester test.txt
 
 exit $((FAILED > 0 ? 1 : 0))

@@ -3,26 +3,38 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <limits.h>
+
+enum { READ = 0, WRITE = 1 };
 
 void xread(int fd, void *buf, size_t size) {
-    ssize_t r = read(fd, buf, size);
-    if (r != (ssize_t)size) {
-        perror("read");
-        exit(1);
+    size_t total = 0;
+    while (total < size) {
+        ssize_t r = read(fd, (char*)buf + total, size - total);
+        if (r <= 0) {
+            perror("read");
+            exit(1);
+        }
+        total += r;
     }
 }
 
 void xwrite(int fd, void *buf, size_t size) {
-    ssize_t w = write(fd, buf, size);
-    if (w != (ssize_t)size) {
-        perror("write");
-        exit(1);
+    size_t total = 0;
+    while (total < size) {
+        ssize_t w = write(fd, (char*)buf + total, size - total);
+        if (w <= 0) {
+            perror("write");
+            exit(1);
+        }
+        total += w;
     }
 }
 
 void create_ring_pipes(int ring[][2], int n) {
     for (int i = 0; i < n; i++) {
         if (pipe(ring[i]) == -1) {
+            fprintf(stderr, "Error creando pipe del anillo[%d]\n", i);
             perror("pipe");
             exit(1);
         }
@@ -31,8 +43,8 @@ void create_ring_pipes(int ring[][2], int n) {
 
 void close_unused_pipes(int ring[][2], int n, int me) {
     for (int i = 0; i < n; i++) {
-        if (i != me) close(ring[i][1]);
-        if (i != (me - 1 + n) % n) close(ring[i][0]);
+        if (i != me) close(ring[i][WRITE]);
+        if (i != (me - 1 + n) % n) close(ring[i][READ]);
     }
 }
 
@@ -41,27 +53,24 @@ void child_process_logic(int me, int n, int start,
     close_unused_pipes(ring, n, me);
 
     if (me == start) {
-        close(p2c[1]);
-        close(c2p[0]);
+        close(p2c[WRITE]);
+        close(c2p[READ]);
     } else {
-        close(p2c[0]); close(p2c[1]);
-        close(c2p[0]); close(c2p[1]);
+        close(p2c[READ]); close(p2c[WRITE]);
+        close(c2p[READ]); close(c2p[WRITE]);
     }
 
     int val;
-    int in_fd = (me == start) ? p2c[0] : ring[(me - 1 + n) % n][0];
-    int out_fd = ring[me][1];
+    int in_fd = (me == start) ? p2c[READ] : ring[(me - 1 + n) % n][READ];
+    int out_fd = ring[me][WRITE];
+
+    xread(in_fd, &val, sizeof(val));
+    val++;
+    xwrite(out_fd, &val, sizeof(val));
 
     if (me == start) {
-        xread(in_fd, &val, sizeof(val));
-        val++;
-        xwrite(out_fd, &val, sizeof(val));
-        xread(ring[(me - 1 + n) % n][0], &val, sizeof(val));
-        xwrite(c2p[1], &val, sizeof(val));
-    } else {
-        xread(in_fd, &val, sizeof(val));
-        val++;
-        xwrite(out_fd, &val, sizeof(val));
+        xread(ring[(me - 1 + n) % n][READ], &val, sizeof(val));
+        xwrite(c2p[WRITE], &val, sizeof(val));
     }
 
     exit(0);
@@ -69,14 +78,18 @@ void child_process_logic(int me, int n, int start,
 
 void parent_process_logic(int n, int ring[][2], int p2c[2], int c2p[2], int initial_val) {
     for (int i = 0; i < n; i++) {
-        close(ring[i][0]);
-        close(ring[i][1]);
+        close(ring[i][READ]);
+        close(ring[i][WRITE]);
     }
-    close(p2c[0]);
-    close(c2p[1]);
+    close(p2c[READ]);
+    close(c2p[WRITE]);
 
-    xwrite(p2c[1], &initial_val, sizeof(initial_val));
-    xread(c2p[0], &initial_val, sizeof(initial_val));
+    xwrite(p2c[WRITE], &initial_val, sizeof(initial_val));
+    close(p2c[WRITE]);  // muy importante para evitar bloqueos
+
+    xread(c2p[READ], &initial_val, sizeof(initial_val));
+    close(c2p[READ]);
+
     printf("Valor final recibido por el padre: %d\n", initial_val);
 }
 
@@ -85,7 +98,7 @@ int main(int argc, char **argv)
     setbuf(stdout, NULL);  // stdout sin buffering
 
     if (argc != 4) {
-        printf("Uso: anillo <n> <c> <s>\n");
+        fprintf(stderr, "Uso: %s <n> <c> <s>\n", argv[0]);
         exit(1);
     }
 
@@ -98,10 +111,19 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    // Validación de overflow
+    if (initial_val > INT_MAX - n) {
+        fprintf(stderr, "Error: desborde positivo (initial_val + n > INT_MAX)\n");
+        exit(1);
+    }
+    if (initial_val < INT_MIN + n) {
+        fprintf(stderr, "Error: desborde negativo (initial_val + n < INT_MIN)\n");
+        exit(1);
+    }
+
     printf("Se crearán %d procesos, se enviará el caracter %d desde proceso %d\n",
            n, initial_val, start);
-    fflush(stdout);
-    
+
     int ring[n][2], p2c[2], c2p[2];
     create_ring_pipes(ring, n);
     if (pipe(p2c) == -1 || pipe(c2p) == -1) {
@@ -122,6 +144,11 @@ int main(int argc, char **argv)
 
     parent_process_logic(n, ring, p2c, c2p, initial_val);
 
-    for (int i = 0; i < n; i++) wait(NULL);
+    for (int i = 0; i < n; i++) {
+        int status;
+        waitpid(-1, &status, 0);
+    }
+
     return 0;
 }
+
