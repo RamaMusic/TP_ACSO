@@ -167,5 +167,5 @@ echo -e "   ${RED}Con leaks detectados: $MEM_FAIL${NC}"
 echo -e "${BLUE}============================================${NC}"
 
 # LIMPIEZA
-rm -f "$TEMP_OUT" "$EXPECTED_OUT" "$SHELL_OUT" "$VALGRIND_OUT" "$TEST_FILE", "$SHELL_ERR"
 make clean > /dev/null
+rm -f "$TEMP_OUT" "$EXPECTED_OUT" "$SHELL_OUT" "$VALGRIND_OUT" "$TEST_FILE" "$SHELL_ERR"
