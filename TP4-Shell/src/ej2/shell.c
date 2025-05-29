@@ -199,10 +199,15 @@ int main(void) {
     char *commands[MAX_CMDS];
 
     setup_signals();
-    printf("Shell started. Type 'exit' to quit.\n");
+    if (isatty(STDIN_FILENO)) {
+        printf("Shell started. Type 'exit' to quit.\n");
+    }
 
     while (shell_running) {
-        printf("Shell> "); fflush(stdout);
+        if (isatty(STDIN_FILENO)) { 
+            printf("Shell> ");
+        }
+        fflush(stdout);
         if (!fgets(line_buf, sizeof(line_buf), stdin)) break;
 
         char *line = trim(line_buf);
@@ -228,6 +233,8 @@ int main(void) {
         free_all(args_list, commands, cmd_count);
     }
 
-    printf("Shell terminated.\n");
+    if (isatty(STDIN_FILENO)) {
+        printf("Shell terminated.\n");
+    }
     return 0;
 }
