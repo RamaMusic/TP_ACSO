@@ -5,6 +5,7 @@ set -u
 BIN=./ring
 VALGRIND_AVAILABLE=$(command -v valgrind || echo "")
 VALGRIND_OUT=$(mktemp)
+STDERR_TMP=$(mktemp)
 VERBOSE=false
 [[ "${1:-}" == "--verbose" ]] && VERBOSE=true
 
@@ -33,7 +34,7 @@ run_test() {
     echo -e "${YELLOW}Test $TOTAL: $desc${NC}"
     echo -e "  ${BLUE}$BIN $n $c $s${NC}"
 
-    if output=$($BIN "$n" "$c" "$s" 2>&1); then
+    if output=$("$BIN" "$n" "$c" "$s" 2> "$STDERR_TMP"); then
         if echo "$output" | grep -q "Valor final.*: $expected"; then
             echo -e "  ${GREEN}✔ Funcionalidad OK${NC}"
             ((PASSED++))
@@ -47,10 +48,15 @@ run_test() {
         ((FAILED++))
     fi
 
+    if [ -s "$STDERR_TMP" ]; then
+        echo -e "  ${YELLOW}⚠️  stderr detectado, revisar salida manualmente:${NC}"
+        head -3 "$STDERR_TMP" | sed 's/^/     /'
+    fi
+
     if [ "$n" -ge 500 ]; then
         echo -e "  ${YELLOW}Valgrind omitido por tamaño${NC}"
     elif [[ -n "$VALGRIND_AVAILABLE" ]]; then
-        valgrind --leak-check=full --error-exitcode=42 "$BIN" "$n" "$c" "$s" >/dev/null 2> "$VALGRIND_OUT"
+        valgrind --leak-check=full --error-exitcode=42 "$BIN" "$n" "$c" "$s" >/dev/null 2>> "$VALGRIND_OUT"
         if [ $? -eq 0 ]; then
             echo -e "  ${GREEN}✔ Memoria limpia${NC}"
             ((MEM_CLEAN++))
@@ -71,12 +77,19 @@ run_invalid() {
     ((TOTAL++))
     echo -e "${YELLOW}Test $TOTAL: $desc${NC}"
     echo -e "  ${BLUE}$cmd${NC}"
-    if $cmd >/dev/null 2>&1; then
+
+    eval "$cmd" >/dev/null 2> "$STDERR_TMP"
+    if [ $? -eq 0 ]; then
         echo -e "  ${RED}✘ Debería fallar, pero pasó${NC}"
         ((FAILED++))
     else
         echo -e "  ${GREEN}✔ Falló como se esperaba${NC}"
         ((PASSED++))
+    fi
+
+    if [ -s "$STDERR_TMP" ]; then
+        echo -e "  ${YELLOW}⚠️  stderr detectado, revisar salida manualmente:${NC}"
+        head -3 "$STDERR_TMP" | sed 's/^/     /'
     fi
     echo ""
 }
@@ -90,7 +103,7 @@ run_test 6 1000   5 1006   "6 procesos, valor 1000, start 5"
 
 echo -e "${BLUE}● Inválidos:${NC}"
 run_invalid "$BIN"                         "Sin argumentos"
-run_invalid "$BIN 2 0 0"                   "Solo dos argumentos"
+run_invalid "$BIN 2 0"                     "Solo dos argumentos"
 run_invalid "$BIN 3 0 3"                   "Start fuera de rango"
 run_invalid "$BIN 4 0 -1"                  "Start negativo"
 run_invalid "$BIN a b c"                  "Argumentos no numéricos"
@@ -113,12 +126,16 @@ run_invalid "$BIN 10 -2147483639 0"         "INT_MIN - 1"
 echo -e "${BLUE}● Timeout / Deadlock:${NC}"
 ((TOTAL++))
 echo -e "${YELLOW}Test $TOTAL: Detección de deadlock${NC}"
-if timeout 2s $BIN 3 0 0 >/dev/null 2>&1; then
+if timeout 2s $BIN 3 0 0 >/dev/null 2> "$STDERR_TMP"; then
     echo -e "  ${GREEN}✔ Terminó correctamente${NC}"
     ((PASSED++))
 else
     echo -e "  ${RED}✘ Timeout o error${NC}"
     ((FAILED++))
+fi
+if [ -s "$STDERR_TMP" ]; then
+    echo -e "  ${YELLOW}⚠️  stderr detectado, revisar salida manualmente:${NC}"
+    head -3 "$STDERR_TMP" | sed 's/^/     /'
 fi
 echo ""
 
@@ -166,6 +183,5 @@ echo -e "${BLUE}--------------------------------------------${NC}"
 
 # Limpieza
 make clean >/dev/null
-rm -f "$VALGRIND_OUT" tester test.txt
-
+rm -f "$VALGRIND_OUT" "$STDERR_TMP" tester test.txt
 exit $((FAILED > 0 ? 1 : 0))
