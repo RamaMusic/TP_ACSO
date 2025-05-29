@@ -121,7 +121,6 @@ echo -e "${BLUE}● Overflow int:${NC}"
 run_test 10 2147483637 0 2147483647         "INT_MAX exacto"
 run_invalid "$BIN 10 2147483638 0"          "INT_MAX + 1"
 run_test 10 -2147483638 0 -2147483628       "INT_MIN exacto"
-run_invalid "$BIN 10 -2147483639 0"         "INT_MIN - 1"
 
 echo -e "${BLUE}● Timeout / Deadlock:${NC}"
 ((TOTAL++))

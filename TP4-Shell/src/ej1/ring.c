@@ -134,11 +134,13 @@ int main(int argc, char **argv) {
     if (initial_val > INT_MAX - n) {
         fprintf(stderr, "Error: desborde positivo (initial_val + n > INT_MAX)\n");
         exit(1);
+
     }
-    if (initial_val < INT_MIN + n) {
-        fprintf(stderr, "Error: desborde negativo (initial_val + n < INT_MIN)\n");
-        exit(1);
-    }
+    // Inicialmente este caso tenía sentido, pero como mi ring solamente suma esto pierde todo su valor, ya que nunca me voy a pasar por el negativo en un int32 sumando.
+    // if (initial_val + n < INT_MIN) {
+    //     fprintf(stderr, "Error: desborde negativo (initial_val + n < INT_MIN)\n");
+    //     exit(1);
+    // }
 
     printf("Se crearán %d procesos, se enviará el caracter %d desde proceso %d\n",
            n, initial_val, start);
