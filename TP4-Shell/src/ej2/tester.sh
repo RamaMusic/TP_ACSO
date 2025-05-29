@@ -113,6 +113,10 @@ run_test "cat $TEST_FILE | grep .zip" "Búsqueda de extensión"
 run_test "echo hola | grep hola | wc -l" "Pipeline triple"
 run_test "/bin/echo hola" "Comando con ruta absoluta"
 
+# FUNCIONALES EXTRA
+run_test "ls | sort | uniq" "" "Pipeline real sin wc (validez estructural)"
+run_test $'echo\t\thola' "hola" "Tabulaciones entre palabras"
+
 # ERRORES DE SINTAXIS (estos deberían producir errores)
 run_test "| echo hola" "Pipe al inicio" "error"
 run_test "echo hola |" "Pipe al final" "error"
@@ -121,6 +125,9 @@ run_test "ls | | wc" "Pipe vacío entre comandos" "error"
 run_test "| | | |" "Múltiples pipes vacíos" "error"
 run_test "|||" "Tres pipes consecutivos" "error"
 run_test "| | hola |" "Comando entre pipes vacíos" "error"
+
+# CASO ESPECIAL: COMANDO EXIT DENTRO DE PIPE
+run_test "exit | wc" "" "Exit dentro de pipeline"
 
 # ERRORES DE PARSING Y COMANDOS INVÁLIDOS
 run_test "inexistentecomando" "Comando inexistente" "error"
@@ -133,6 +140,15 @@ run_test "yes | head -n 5" "Yes truncado por head"
 run_test "echo \"\"" "Echo con string vacío"
 run_test "echo hola | grep -v hola" "Grep que descarta salida"
 run_test "cat /dev/null | wc -l" "Conteo sobre input vacío"
+
+# ARGUMENTOS EXTREMOS
+run_test "echo $(seq -s ' ' 1 63)" "Límite exacto de argumentos"
+run_test "echo $(seq -s ' ' 1 64)" "Exceso de argumentos" "error"
+
+# STRESS TEST: PIPELINE LARGO (200 PROCESOS)
+PIPE_CHAIN=$(printf 'grep . | %.0s' {1..198}; echo tail -n 1)
+run_test "cat $TEST_FILE | $PIPE_CHAIN" "Pipeline de 200 procesos con grep"
+
 
 # EXTRA CREDIT: COMANDOS COMPLEJOS
 run_test "cat $TEST_FILE | grep -E \"\\.png$|\\.zip$\"" "Extra Credit: grep con regex compuesta"

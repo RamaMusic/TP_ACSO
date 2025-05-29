@@ -158,6 +158,9 @@ void run_pipeline(char ***args_list, int cmd_count) {
                 dup2(fd[1], STDOUT_FILENO);
                 close(fd[1]);
             }
+            if (strcmp(args_list[i][0], "exit") == 0) {
+                exit(0);
+            }
             execvp(args_list[i][0], args_list[i]);
             fprintf(stderr, "command not found\n");
             exit(EXIT_FAILURE);
