@@ -106,6 +106,13 @@ char **parse_args(char *cmd) {
             cmd++;
             start = cmd;
             while (*cmd && *cmd != '"') cmd++;
+
+            if (!*cmd) {
+                fprintf(stderr, "Syntax error: missing closing quote\n");
+                for (int k = 0; k < i; ++k) free(argv[k]);
+                free(argv);
+                return NULL;
+            }
         } else {
             start = cmd;
             while (*cmd && !isspace((unsigned char)*cmd)) cmd++;

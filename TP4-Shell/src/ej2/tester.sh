@@ -5,6 +5,7 @@ TEST_FILE="test.txt"
 TEMP_OUT=$(mktemp)
 EXPECTED_OUT=$(mktemp)
 SHELL_OUT=$(mktemp)
+SHELL_ERR=$(mktemp)
 VALGRIND_OUT="valgrind.txt"
 TOTAL=0
 PASSED=0
@@ -46,15 +47,17 @@ run_test() {
     echo -e "   ${BLUE}Comando:${NC} $input"
 
     # Get shell output
-    echo -e "$input\nexit" | ./shell 2>&1 | sed -E '/^ *Shell started.*$/d;/^ *Shell terminated.*$/d;/^Shell> *$/d;s/^Shell> *//' > "$SHELL_OUT"
-    
-    if [ "$should_error" = "error" ]; then
-        # For error cases, just check if there's some error output
-        if [ -s "$SHELL_OUT" ]; then
-            echo -e "   ${GREEN}✅ Funcionalidad OK (Error detectado correctamente)${NC}"
+    echo -e "$input\nexit" | ./shell > "$SHELL_OUT" 2> "$SHELL_ERR"
+    sed -i -E '/^ *Shell started.*$/d;/^ *Shell terminated.*$/d;/^Shell> *$/d;s/^Shell> *//' "$SHELL_OUT"
+
+    if [[ "$should_error" == "error" ]]; then
+        if [ -s "$SHELL_ERR" ]; then
+            echo -e "   ${YELLOW}⚠️  Error detectado, pero se recomienda verificar manualmente la salida de stderr:${NC}"
+            cat "$SHELL_ERR" | head -3 | sed 's/^/     /'
+            echo -e "   ${GREEN}✅ Funcionalidad OK (stderr no está vacío)${NC}"
             ((PASSED++))
         else
-            echo -e "   ${RED}❌ Funcionalidad FALLÓ (No se detectó error)${NC}"
+            echo -e "   ${RED}❌ Funcionalidad FALLÓ (No se detectó error en stderr)${NC}"
             ((FAILED++))
         fi
     elif [ "$input" = "exit" ]; then
@@ -164,5 +167,5 @@ echo -e "   ${RED}Con leaks detectados: $MEM_FAIL${NC}"
 echo -e "${BLUE}============================================${NC}"
 
 # LIMPIEZA
-rm -f "$TEMP_OUT" "$EXPECTED_OUT" "$SHELL_OUT" "$VALGRIND_OUT" "$TEST_FILE"
+rm -f "$TEMP_OUT" "$EXPECTED_OUT" "$SHELL_OUT" "$VALGRIND_OUT" "$TEST_FILE", "$SHELL_ERR"
 make clean > /dev/null
