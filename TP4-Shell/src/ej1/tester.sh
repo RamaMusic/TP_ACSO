@@ -146,7 +146,7 @@ if [[ ! -f ./tester ]]; then
     ((FAILED++))
 else
     if [[ -n "$VALGRIND_AVAILABLE" ]]; then
-        valgrind --leak-check=full --error-exitcode=42 ./tester > /dev/null 2> "$VALGRIND_OUT"
+        valgrind --leak-check=full --error-exitcode=42 ./tester 2> "$VALGRIND_OUT"
         if [ $? -eq 0 ]; then
             echo -e "  ${GREEN}✔ tester.c sin leaks${NC}"
             ((PASSED++))
