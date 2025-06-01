@@ -18,6 +18,9 @@ volatile sig_atomic_t shell_running = 1;
 // Utils
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Elimina espacios en blanco del inicio y final de una cadena.
+ */
 char *trim(char *s) {
     while (isspace((unsigned char)*s)) s++;
     char *end = s + strlen(s) - 1;
@@ -25,6 +28,10 @@ char *trim(char *s) {
     return s;
 }
 
+/**
+ * Detecta errores de sintaxis en la línea, como pipes al inicio o final,
+ * dobles pipes, o secuencias inválidas.
+ */
 int is_syntax_error(const char *line) {
     int len = strlen(line);
     if (len == 0 || line[0] == '|' || line[len - 1] == '|') return 1;
@@ -39,14 +46,20 @@ int is_syntax_error(const char *line) {
     return 0;
 }
 
+/**
+ * Captura señales como SIGINT o SIGTERM y prepara el cierre del shell.
+ */
 void signal_handler(int sig) {
     (void)sig;
     shell_running = 0;
-    
     const char *msg = "\nShell shutting down...\n";
     write(STDOUT_FILENO, msg, strlen(msg));
 }
 
+/**
+ * Configura los manejadores de señal necesarios para interrumpir
+ * la ejecución del shell de forma segura.
+ */
 void setup_signals(void) {
     struct sigaction sa;
     sa.sa_handler = signal_handler;
@@ -60,6 +73,10 @@ void setup_signals(void) {
 // Parsing
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Separa una línea de entrada en múltiples comandos divididos por el pipe '|',
+ * ignorando los pipes que estén dentro de comillas dobles.
+ */
 int split_pipeline(char *line, char **commands) {
     int count = 0;
     char *start = line;
@@ -82,7 +99,10 @@ int split_pipeline(char *line, char **commands) {
     return count;
 }
 
-
+/**
+ * Parsea un comando individual y construye un array de argumentos,
+ * respetando los grupos entre comillas.
+ */
 char **parse_args(char *cmd) {
     char **argv = calloc(MAX_ARGS + 1, sizeof(char *));
     int i = 0;
@@ -121,7 +141,7 @@ char **parse_args(char *cmd) {
         char saved = *cmd;
         *cmd = '\0';
         argv[i++] = strdup(start);
-        if (quoted && saved == '"') cmd++;  // saltear cierre de comilla
+        if (quoted && saved == '"') cmd++;
         else if (!quoted && saved) cmd++;
     }
 
@@ -129,6 +149,9 @@ char **parse_args(char *cmd) {
     return argv;
 }
 
+/**
+ * Libera la memoria asignada para un array de argumentos.
+ */
 void free_args(char **args) {
     if (!args) return;
     for (int i = 0; args[i]; ++i) free(args[i]);
@@ -139,6 +162,10 @@ void free_args(char **args) {
 // Ejecución
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Ejecuta una lista de comandos conectados por pipes,
+ * creando procesos hijo y redireccionando entradas/salidas.
+ */
 void run_pipeline(char ***args_list, int cmd_count) {
     int in_fd = STDIN_FILENO, fd[2];
     pid_t pids[MAX_CMDS];
@@ -155,7 +182,7 @@ void run_pipeline(char ***args_list, int cmd_count) {
             exit(EXIT_FAILURE);
         }
 
-        if (pid == 0) {  // Proceso hijo
+        if (pid == 0) {
             if (in_fd != STDIN_FILENO) {
                 dup2(in_fd, STDIN_FILENO);
                 close(in_fd);
@@ -173,7 +200,6 @@ void run_pipeline(char ***args_list, int cmd_count) {
             exit(EXIT_FAILURE);
         }
 
-        // Proceso padre
         pids[i] = pid;
 
         if (in_fd != STDIN_FILENO) close(in_fd);
@@ -191,7 +217,9 @@ void run_pipeline(char ***args_list, int cmd_count) {
     }
 }
 
-
+/**
+ * Libera todos los recursos usados por los comandos y argumentos en una ejecución.
+ */
 void free_all(char ***args_list, char **commands, int cmd_count) {
     for (int i = 0; i < cmd_count; ++i) {
         free_args(args_list[i]);
@@ -201,7 +229,7 @@ void free_all(char ***args_list, char **commands, int cmd_count) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Loop principal
+// Main
 // ─────────────────────────────────────────────────────────────────────────────
 
 int main(void) {
@@ -214,7 +242,7 @@ int main(void) {
     }
 
     while (shell_running) {
-        if (isatty(STDIN_FILENO)) { 
+        if (isatty(STDIN_FILENO)) {
             printf("Shell> ");
         }
         fflush(stdout);
