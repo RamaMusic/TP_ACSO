@@ -136,11 +136,7 @@ int main(int argc, char **argv) {
         exit(1);
 
     }
-    // Inicialmente este caso tenía sentido, pero como mi ring solamente suma esto pierde todo su valor, ya que nunca me voy a pasar por el negativo en un int32 sumando.
-    // if (initial_val + n < INT_MIN) {
-    //     fprintf(stderr, "Error: desborde negativo (initial_val + n < INT_MIN)\n");
-    //     exit(1);
-    // }
+    // En teoría debería agregar el caso de desborde negativo, pero como mi ring solamente suma, no tiene sentido.
 
     printf("Se crearán %d procesos, se enviará el caracter %d desde proceso %d\n",
            n, initial_val, start);
