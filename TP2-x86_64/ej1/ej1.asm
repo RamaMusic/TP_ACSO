@@ -49,9 +49,9 @@ string_proc_node_create_asm:
         mov     rbp, rsp
         sub     rsp, 32
 
-        mov     eax, edi                 ; guarda type en eax
-        mov     QWORD [rbp-32], rsi      ; guarda hash
-        mov     BYTE [rbp-20], al        ; guarda type (1 byte)
+        mov     eax, edi
+        mov     QWORD [rbp-32], rsi
+        mov     BYTE [rbp-20], al
 
         cmp     QWORD [rbp-32], 0        ; si hash == NULL → return NULL
         jne     .valid_string
@@ -61,7 +61,7 @@ string_proc_node_create_asm:
 .valid_string:
         mov     edi, 32                  ; Arg malloc
         call    malloc
-        mov     QWORD [rbp-8], rax       ; ret malloc
+        mov     QWORD [rbp-8], rax
 
         cmp     QWORD [rbp-8], 0         ; si NULL → return NULL
         jne     .node_malloc_success
