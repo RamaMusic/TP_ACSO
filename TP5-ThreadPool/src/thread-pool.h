@@ -15,6 +15,8 @@
 #include <thread>      // for thread
 #include <vector>      // for vector
 #include "Semaphore.h" // for Semaphore
+#include <queue>
+
 
 using namespace std;
 
@@ -74,6 +76,8 @@ class ThreadPool {
     vector<worker_t> wts;                   // worker thread handles. you may want to change/remove this
     bool done;                              // flag to indicate the pool is being destroyed
     mutex queueLock;                        // mutex to protect the queue of tasks
+    queue<function<void(void)>> taskQueue;    // cola de tareas
+    Semaphore tasksAvailable{0};              // semáforo para tareas en queue
 
     /* It is incomplete, there should be more private variables to manage the structures... 
     * *
