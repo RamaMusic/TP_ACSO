@@ -31,11 +31,11 @@ using namespace std;
  * worker to process.
  */
 typedef struct worker {
-    thread ts;
-    function<void(void)> thunk;
-    /**
-     * Complete the definition of the worker_t struct here...
-     **/
+    thread ts;                        // hilo
+    function<void(void)> thunk;       // tarea
+    Semaphore ready{0};               // flag
+    bool available = true;
+    mutex lock;   
 } worker_t;
 
 class ThreadPool {
@@ -70,14 +70,21 @@ class ThreadPool {
     
   private:
 
-    void worker(int id);
-    void dispatcher();
-    thread dt;                              // dispatcher thread handle
-    vector<worker_t> wts;                   // worker thread handles. you may want to change/remove this
-    bool done;                              // flag to indicate the pool is being destroyed
-    mutex queueLock;                        // mutex to protect the queue of tasks
-    queue<function<void(void)>> taskQueue;    // cola de tareas
-    Semaphore tasksAvailable{0};              // semáforo para tareas en queue
+    void worker(int id);                     // function executed by each worker thread
+    void dispatcher();                       // function executed by the dispatcher thread
+
+    thread dt;                               // dispatcher thread handle
+    vector<worker_t> wts;                    // worker thread handles. you may want to change/remove this
+    
+    bool done;                               // flag to indicate the pool is being destroyed
+
+    mutex queueLock;                         // mutex que protege el acceso a la taskQueue
+    queue<function<void(void)>> taskQueue;   // queue de tareas pendientes
+    Semaphore tasksAvailable{0};             // semáforo que indica que hay tareas disponibles
+
+    int pendingTasks = 0;
+    mutex countLock;                         // mutex que protege el contador de tareas activas
+    Semaphore allDone{0};                    // usado por wait() para saber cuándo no queda nada en ejecución
 
     /* It is incomplete, there should be more private variables to manage the structures... 
     * *
