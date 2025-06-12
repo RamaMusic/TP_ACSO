@@ -1,3 +1,8 @@
+// File: ramiro_tests.cc
+// ----------------------
+// Mega tester para ThreadPool: casos básicos, extremos, estrés, diseño lógico,
+// ciclo de vida, anidamiento, timing y manejo de errores.
+
 #include "thread-pool.h"
 #include <iostream>
 #include <vector>
@@ -8,16 +13,20 @@
 #include <atomic>
 #include <sstream>
 #include <stdexcept>
+#include <future>
 
 using namespace std;
+using namespace chrono;
 
 mutex oslock;
 bool global_success = true;
 
+// ---------------------------------------------------------------------------
 void sleep_for_ms(int ms) {
-    this_thread::sleep_for(chrono::milliseconds(ms));
+    this_thread::sleep_for(milliseconds(ms));
 }
 
+// ---------------------------------------------------------------------------
 struct TestCase {
     string id;
     string name;
@@ -28,7 +37,6 @@ struct TestCase {
 // Básicos (B): Casos simples
 // ---------------------------------------------------------------------------
 
-// Verifica ejecución de 3 tareas en un pool de 2 hilos
 bool test_basic() {
     try {
         ThreadPool pool(2);
@@ -43,7 +51,6 @@ bool test_basic() {
     }
 }
 
-// Asegura que wait() no bloquea cuando no hay tareas
 bool test_wait_only() {
     try {
         ThreadPool pool(4);
@@ -54,7 +61,6 @@ bool test_wait_only() {
     }
 }
 
-// Comprueba ejecución secuencial con un único hilo
 bool test_serial_execution() {
     try {
         stringstream log;
@@ -77,7 +83,6 @@ bool test_serial_execution() {
 // Concurrencia (C): Uso normal del pool
 // ---------------------------------------------------------------------------
 
-// Evalúa estrés con 1000 tareas concurrentes
 bool test_concurrent_stress() {
     try {
         const int N = 1000;
@@ -95,7 +100,6 @@ bool test_concurrent_stress() {
     }
 }
 
-// Comprueba reutilización del pool tras llamada a wait()
 bool test_reuse_pool() {
     try {
         ThreadPool pool(4);
@@ -112,7 +116,6 @@ bool test_reuse_pool() {
     }
 }
 
-// Verifica que múltiples wait() no afectan la ejecución
 bool test_multiple_wait_calls() {
     try {
         ThreadPool pool(4);
@@ -130,7 +133,6 @@ bool test_multiple_wait_calls() {
 // Extremos (E): Casos de estrés y detección de fallos
 // ---------------------------------------------------------------------------
 
-// Ejecuta 10 000 tareas para probar atomicidad
 bool test_massive_stress() {
     try {
         const int N = 10000;
@@ -146,7 +148,6 @@ bool test_massive_stress() {
     }
 }
 
-// Prueba tareas largas seguidas de shutdown
 bool test_long_tasks_then_quit() {
     try {
         ThreadPool pool(4);
@@ -160,7 +161,6 @@ bool test_long_tasks_then_quit() {
     }
 }
 
-// Ejecuta muchas tareas cortas en pocos hilos
 bool test_many_short_tasks_on_few_threads() {
     try {
         ThreadPool pool(2);
@@ -175,7 +175,6 @@ bool test_many_short_tasks_on_few_threads() {
     }
 }
 
-// Detecta posible deadlock al intentar lockear durante la ejecución
 bool test_potential_deadlock() {
     try {
         ThreadPool pool(2);
@@ -201,7 +200,6 @@ bool test_potential_deadlock() {
     }
 }
 
-// Simula seguimiento de tareas pendientes sin acceso interno
 bool test_pending_tasks_tracking_simulado() {
     try {
         ThreadPool pool(4);
@@ -223,7 +221,6 @@ bool test_pending_tasks_tracking_simulado() {
 // Funcionales (F): Casos de diseño lógico interno
 // ---------------------------------------------------------------------------
 
-// Permite scheduling desde múltiples hilos
 bool test_schedule_from_multiple_threads() {
     try {
         const int N = 500;
@@ -245,7 +242,6 @@ bool test_schedule_from_multiple_threads() {
     }
 }
 
-// Verifica comportamiento al programar tras destrucción del pool
 bool test_schedule_after_destruction() {
     try {
         ThreadPool* pool = new ThreadPool(2);
@@ -263,7 +259,6 @@ bool test_schedule_after_destruction() {
     }
 }
 
-// Permite programar tareas desde dentro de otra tarea
 bool test_schedule_inside_task() {
     try {
         ThreadPool pool(4);
@@ -279,7 +274,6 @@ bool test_schedule_inside_task() {
     }
 }
 
-// Asegura que wait() bloquea hasta completar tareas largas
 bool test_wait_blocks_until_finish() {
     try {
         ThreadPool pool(2);
@@ -295,7 +289,6 @@ bool test_wait_blocks_until_finish() {
     }
 }
 
-// Permite múltiples wait() en paralelo durante la ejecución
 bool test_many_waits_during_execution() {
     try {
         ThreadPool pool(4);
@@ -317,7 +310,6 @@ bool test_many_waits_during_execution() {
     }
 }
 
-// Prueba alta contención en actualizaciones atómicas
 bool test_high_contention_atomic_updates() {
     try {
         ThreadPool pool(4);
@@ -334,7 +326,6 @@ bool test_high_contention_atomic_updates() {
     }
 }
 
-// Destruye el pool inmediatamente después de encolar tareas
 bool test_immediate_destruction_after_schedule() {
     try {
         ThreadPool* pool = new ThreadPool(2);
@@ -350,7 +341,6 @@ bool test_immediate_destruction_after_schedule() {
     }
 }
 
-// Alterna rápidamente schedule() y wait()
 bool test_massive_schedule_wait_interleave() {
     try {
         ThreadPool pool(2);
@@ -369,7 +359,6 @@ bool test_massive_schedule_wait_interleave() {
     }
 }
 
-// Varias rondas de schedule() seguidas de wait()
 bool test_schedule_after_wait_multiple_times() {
     try {
         ThreadPool pool(2);
@@ -385,6 +374,101 @@ bool test_schedule_after_wait_multiple_times() {
     } catch (...) {
         return false;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle (L): pruebas de ciclo de vida del pool
+// ---------------------------------------------------------------------------
+
+bool test_destructor_waits_for_tasks() {
+    auto start = high_resolution_clock::now();
+    {
+        ThreadPool pool(1);
+        pool.schedule([](){ sleep_for_ms(100); });
+    } // Destructor aquí
+    auto end = high_resolution_clock::now();
+    auto ms = duration_cast<milliseconds>(end - start).count();
+    return ms >= 100;
+}
+
+// ---------------------------------------------------------------------------
+// Nesting (N): scheduling anidado profundo
+// ---------------------------------------------------------------------------
+
+bool test_deep_nested_scheduling() {
+    try {
+        ThreadPool pool(4);
+        atomic<int> count(0);
+        pool.schedule([&](){
+            count++;
+            pool.schedule([&](){
+                count++;
+                pool.schedule([&](){ count++; });
+            });
+        });
+        pool.wait();
+        return count == 3;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Timing (T): mediciones de paralelismo
+// ---------------------------------------------------------------------------
+
+bool test_parallel_speedup() {
+    const int tasks = 4;
+    const int sleep_ms = 100;
+    ThreadPool pool(tasks);
+    auto t0 = high_resolution_clock::now();
+    for (int i = 0; i < tasks; ++i) {
+        pool.schedule([=](){ sleep_for_ms(sleep_ms); });
+    }
+    pool.wait();
+    auto t1 = high_resolution_clock::now();
+    auto elapsed = duration_cast<milliseconds>(t1 - t0).count();
+    // Debería ser significativamente menor que tasks * sleep_ms
+    return elapsed < (sleep_ms * tasks / 2);
+}
+
+// ---------------------------------------------------------------------------
+// Error-Handling (H): llamadas a wait dentro de tareas con timeout
+// ---------------------------------------------------------------------------
+bool test_wait_inside_task() {
+    // promise para devolver el resultado de ok
+    std::promise<bool> prom;
+    auto fut = prom.get_future();
+
+    // lanzamos el test en un hilo aparte
+    std::thread t([&prom]() {
+        bool ok = false;
+        ThreadPool pool(2);
+
+        pool.schedule([&]() {
+            // dentro de la tarea hacemos wait()
+            pool.wait();
+            ok = true;
+        });
+
+        // esperamos a que se completen todas las tareas
+        pool.wait();
+
+        // devolvemos si llegó a marcar ok
+        prom.set_value(ok);
+    });
+
+    // esperamos como máximo 500 ms
+    if (fut.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout) {
+        // si hace timeout, consideramos fallo
+        t.detach();           // no bloqueamos el hilo muerto
+        return false;
+    }
+
+    // si terminó a tiempo, obtenemos el valor y unimos el hilo
+    bool result = fut.get();
+    t.join();
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,29 +493,38 @@ void print_summary(const vector<TestCase>& tests) {
 
 int main() {
     vector<TestCase> tests = {
-        {"B01", "Basic execution (3 tasks on 2 threads)", test_basic},
-        {"B02", "Wait without scheduling",        test_wait_only},
-        {"B03", "Serial execution with 1 thread", test_serial_execution},
-
-        {"C01", "Stress with 1000 tasks",        test_concurrent_stress},
-        {"C02", "Reusing the pool after wait",    test_reuse_pool},
-        {"C03", "Multiple wait() calls",         test_multiple_wait_calls},
-
-        {"E01", "Massive stress (10k tasks)",    test_massive_stress},
-        {"E02", "Long tasks then shutdown",      test_long_tasks_then_quit},
-        {"E03", "Lots of short tasks on few threads", test_many_short_tasks_on_few_threads},
-        {"E04", "Detect potential deadlock",     test_potential_deadlock},
-        {"E05", "Simulated pendingTasks tracking", test_pending_tasks_tracking_simulado},
-
-        {"F01", "Schedule from multiple threads",        test_schedule_from_multiple_threads},
-        {"F02", "Schedule after destruction (invalid use)", test_schedule_after_destruction},
-        {"F03", "Schedule inside another task",         test_schedule_inside_task},
-        {"F04", "Wait blocks until all tasks finish",   test_wait_blocks_until_finish},
-        {"F06", "Many waits in parallel",               test_many_waits_during_execution},
-        {"F07", "High contention on atomic counter",    test_high_contention_atomic_updates},
-        {"F08", "Destroy pool immediately after scheduling", test_immediate_destruction_after_schedule},
-        {"F09", "Interleaved schedule/wait execution",  test_massive_schedule_wait_interleave},
-        {"F10", "Multiple schedule/wait rounds",        test_schedule_after_wait_multiple_times},
+        // Básicos
+        {"B01", "Basic execution (3 tasks on 2 threads)",          test_basic},
+        {"B02", "Wait without scheduling",                         test_wait_only},
+        {"B03", "Serial execution with 1 thread",                 test_serial_execution},
+        // Concurrencia
+        {"C01", "Stress with 1000 tasks",                         test_concurrent_stress},
+        {"C02", "Reusing the pool after wait",                    test_reuse_pool},
+        {"C03", "Multiple wait() calls",                          test_multiple_wait_calls},
+        // Extremos
+        {"E01", "Massive stress (10k tasks)",                     test_massive_stress},
+        {"E02", "Long tasks then shutdown",                       test_long_tasks_then_quit},
+        {"E03", "Lots of short tasks on few threads",             test_many_short_tasks_on_few_threads},
+        {"E04", "Detect potential deadlock",                      test_potential_deadlock},
+        {"E05", "Simulated pendingTasks tracking",                test_pending_tasks_tracking_simulado},
+        // Funcionales
+        {"F01", "Schedule from multiple threads",                  test_schedule_from_multiple_threads},
+        {"F02", "Schedule after destruction (invalid use)",        test_schedule_after_destruction},
+        {"F03", "Schedule inside another task",                    test_schedule_inside_task},
+        {"F04", "Wait blocks until all tasks finish",              test_wait_blocks_until_finish},
+        {"F06", "Many waits in parallel",                          test_many_waits_during_execution},
+        {"F07", "High contention on atomic counter",               test_high_contention_atomic_updates},
+        {"F08", "Destroy pool immediately after scheduling",       test_immediate_destruction_after_schedule},
+        {"F09", "Interleaved schedule/wait execution",            test_massive_schedule_wait_interleave},
+        {"F10", "Multiple schedule/wait rounds",                  test_schedule_after_wait_multiple_times},
+        // Lifecycle
+        {"L01", "Destructor waits for tasks completion",           test_destructor_waits_for_tasks},
+        // Nesting
+        {"N01", "Deep nested task scheduling",                    test_deep_nested_scheduling},
+        // Timing
+        {"T01", "Parallel speedup benchmark (4 tasks)",           test_parallel_speedup},
+        // Error-Handling
+        {"H01", "Wait inside task should not deadlock",           test_wait_inside_task},
     };
 
     for (const auto& t : tests) {
