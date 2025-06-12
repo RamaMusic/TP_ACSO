@@ -1,7 +1,7 @@
 /**
  * File: thread-pool.cc
  * --------------------
- * Presents the implementation of the ThreadPool class.
+ * Implementación de la clase ThreadPool.
  */
 
 #include "thread-pool.h"
@@ -10,24 +10,24 @@
 
 using namespace std;
 
+/**
+ * Constructor: inicializa los workers y el dispatcher.
+ * @param numThreads - cantidad de hilos trabajadores.
+ */
 ThreadPool::ThreadPool(size_t numThreads) : wts(numThreads), done(false) {
     for (size_t i = 0; i < numThreads; ++i) {
-        wts[i].ts = thread(&ThreadPool::worker, this, i); // Worker por hilo
+        wts[i].ts = thread(&ThreadPool::worker, this, i);
     }
-
-    dt = thread(&ThreadPool::dispatcher, this); // Inicio el dispatcher
+    dt = thread(&ThreadPool::dispatcher, this);
 }
 
 /**
- * Worker: espera una señal del dispatcher para ejecutar una tarea,
- * la corre, y luego se marca como disponible.
- * 
- * argument id: el identificador del worker (índice en el vector wts).
+ * worker: ejecuta tareas asignadas y marca disponibilidad al terminar.
+ * @param id - identificador del worker (posición en wts).
  */
 void ThreadPool::worker(int id) {
     while (!done) {
-        wts[id].ready.wait(); // espera hasta que el dispatcher lo despierte
-
+        wts[id].ready.wait(); // espera que el dispatcher le asigne trabajo
         if (done) break;
 
         function<void(void)> task;
@@ -39,35 +39,53 @@ void ThreadPool::worker(int id) {
         task(); // ejecuta la tarea
 
         {
+            lock_guard<mutex> lock(queueLock);
+            if (--pendingTasks == 0 && taskQueue.empty()) {
+                allDone.signal();
+            }
+        }
+
+        {
             lock_guard<mutex> lock(wts[id].lock);
             wts[id].available = true;
         }
     }
 }
 
+/**
+ * schedule: encola una nueva tarea para ejecutar.
+ * @param thunk - función sin argumentos ni retorno.
+ */
 void ThreadPool::schedule(const function<void(void)>& thunk) {
+    if (done) {
+        throw runtime_error("Cannot schedule tasks on a destroyed ThreadPool.");
+    }
     lock_guard<mutex> lock(queueLock);
     taskQueue.push(thunk);
-    tasksAvailable.signal(); // aviso que hay una nueva tarea
+    pendingTasks++;
+    tasksAvailable.signal(); // avisamos al dispatcher
 }
 
+/**
+ * wait: bloquea hasta que todas las tareas se hayan ejecutado.
+ */
 void ThreadPool::wait() {
+    lock_guard<mutex> lk(waitMutex);
     while (true) {
         {
             lock_guard<mutex> lock(queueLock);
-            if (taskQueue.empty()) break;
+            if (pendingTasks == 0 && taskQueue.empty()) break;
         }
-        this_thread::sleep_for(chrono::milliseconds(10)); // pausa corta para no saturar el CPU mientras esperamos
+        this_thread::sleep_for(chrono::milliseconds(1));
     }
 }
 
 /**
- * Dispatcher: espera nuevas tareas, busca un worker libre y se la asigna.
+ * dispatcher: asigna tareas a workers disponibles.
  */
 void ThreadPool::dispatcher() {
     while (!done) {
-        tasksAvailable.wait(); // bloquea hasta que haya tna tarea
-
+        tasksAvailable.wait(); // espera nueva tarea
         if (done) break;
 
         function<void(void)> task;
@@ -78,7 +96,7 @@ void ThreadPool::dispatcher() {
             taskQueue.pop();
         }
 
-        // buscamos un worker disponible
+        // buscamos un worker libre
         bool assigned = false;
         while (!assigned && !done) {
             for (size_t i = 0; i < wts.size(); ++i) {
@@ -86,35 +104,32 @@ void ThreadPool::dispatcher() {
                 if (wts[i].available) {
                     wts[i].available = false;
                     wts[i].thunk = task;
-                    wts[i].ready.signal(); // lo despertamos
+                    wts[i].ready.signal(); // lo activamos
                     assigned = true;
                     break;
                 }
             }
             if (!assigned) {
-                this_thread::sleep_for(chrono::milliseconds(1)); // si estan todos ocupados, esperamos.
+                this_thread::sleep_for(chrono::milliseconds(1)); // esperamos si todos están ocupados
             }
         }
     }
 }
 
 /**
- * Destructor: espera a que terminen todas las tareas y cierra el pool ordenadamente.
+ * Destructor: espera a que terminen las tareas y cierra los hilos.
  */
 ThreadPool::~ThreadPool() {
-    wait();            // nos aseguramos que no quedan tareas en ejecución
-    done = true;       // marcamos que se va a cerrar todo
-    tasksAvailable.signal(); // por si el dispatcher está esperando
+    wait();
+    done = true;
+    tasksAvailable.signal(); // libera dispatcher
 
-    // despertamos a todos los workers que puedan estar bloqueados
     for (worker_t& w : wts) {
-        w.ready.signal();
+        w.ready.signal(); // libera cada worker
     }
 
-    // esperamos a que todos los hilos terminen
     if (dt.joinable()) dt.join();
     for (worker_t& w : wts) {
         if (w.ts.joinable()) w.ts.join();
     }
 }
-

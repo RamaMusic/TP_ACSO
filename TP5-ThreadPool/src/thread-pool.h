@@ -16,6 +16,7 @@
 #include <vector>      // for vector
 #include "Semaphore.h" // for Semaphore
 #include <queue>
+#include <atomic>
 
 
 using namespace std;
@@ -76,15 +77,16 @@ class ThreadPool {
     thread dt;                               // dispatcher thread handle
     vector<worker_t> wts;                    // worker thread handles. you may want to change/remove this
     
-    bool done;                               // flag to indicate the pool is being destroyed
+    atomic<bool> done;                               // flag to indicate the pool is being destroyed
 
     mutex queueLock;                         // mutex que protege el acceso a la taskQueue
     queue<function<void(void)>> taskQueue;   // queue de tareas pendientes
     Semaphore tasksAvailable{0};             // semáforo que indica que hay tareas disponibles
 
-    int pendingTasks = 0;
-    mutex countLock;                         // mutex que protege el contador de tareas activas
+    atomic<int> pendingTasks{0};
     Semaphore allDone{0};                    // usado por wait() para saber cuándo no queda nada en ejecución
+
+    mutex waitMutex;                         // mutex que protege el acceso a pendingTasks y taskQueue en wait() 
 
     /* It is incomplete, there should be more private variables to manage the structures... 
     * *

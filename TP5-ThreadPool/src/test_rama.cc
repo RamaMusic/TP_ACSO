@@ -224,6 +224,149 @@ bool test_schedule_inside_task() {
         return false;
     }
 }
+// ---------------------------------------------------------------------------
+// F05 - Tarea larga y llamada a wait antes de finalizar
+bool test_wait_blocks_until_finish() {
+    try {
+        ThreadPool pool(2);
+        atomic<bool> completed{false};
+        pool.schedule([&]() {
+            sleep_for_ms(300);
+            completed = true;
+        });
+
+        pool.wait();
+        return completed.load();
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// E05 - Verifica que pendingTasks reflejaría tareas en ejecución, si se usara
+bool test_pending_tasks_tracking_simulado() {
+    try {
+        ThreadPool pool(4);
+        atomic<int> counter{0};
+        for (int i = 0; i < 100; ++i) {
+            pool.schedule([&]() {
+                sleep_for_ms(5);
+                counter++;
+            });
+        }
+        pool.wait();
+        return counter == 100;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// F06 - Muchos hilos llaman a wait() mientras las tareas se ejecutan
+bool test_many_waits_during_execution() {
+    try {
+        ThreadPool pool(4);
+        atomic<int> completed(0);
+
+        for (int i = 0; i < 50; ++i) {
+            pool.schedule([&]() {
+                sleep_for_ms(10);
+                completed++;
+            });
+        }
+
+        vector<thread> waiters;
+        for (int i = 0; i < 5; ++i) {
+            waiters.emplace_back([&]() { pool.wait(); });
+        }
+        for (auto& w : waiters) w.join();
+
+        return completed == 50;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// F07 - Alta contención sobre variable atómica (pendingTasks)
+bool test_high_contention_atomic_updates() {
+    try {
+        ThreadPool pool(4);
+        atomic<int> counter{0};
+
+        for (int i = 0; i < 1000; ++i) {
+            pool.schedule([&]() {
+                counter.fetch_add(1, memory_order_relaxed);
+            });
+        }
+
+        pool.wait();
+        return counter == 1000;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// F08 - Destruir el pool inmediatamente después de encolar tareas
+bool test_immediate_destruction_after_schedule() {
+    try {
+        ThreadPool* pool = new ThreadPool(2);
+        for (int i = 0; i < 10; ++i) {
+            pool->schedule([]() {
+                sleep_for_ms(50);
+            });
+        }
+        delete pool; // debería esperar correctamente
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// F09 - Alternancia rápida entre schedule() y wait()
+bool test_massive_schedule_wait_interleave() {
+    try {
+        ThreadPool pool(2);
+        atomic<int> count(0);
+
+        for (int i = 0; i < 50; ++i) {
+            pool.schedule([&]() {
+                sleep_for_ms(2);
+                count++;
+            });
+            if (i % 5 == 0) pool.wait();
+        }
+
+        pool.wait();
+        return count == 50;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// F10 - Varias rondas de schedule() seguidas de wait()
+bool test_schedule_after_wait_multiple_times() {
+    try {
+        ThreadPool pool(2);
+        atomic<int> total{0};
+
+        for (int round = 0; round < 20; ++round) {
+            pool.schedule([&]() {
+                sleep_for_ms(5);
+                total++;
+            });
+            pool.wait();
+        }
+
+        return total == 20;
+    } catch (...) {
+        return false;
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 void run_test(const TestCase& t) {
@@ -263,6 +406,15 @@ int main() {
         {"F02", "Schedule after destruction (invalid use)", test_schedule_after_destruction},
         {"E04", "Detect potential deadlock", test_potential_deadlock},
         {"F03", "Schedule inside another task", test_schedule_inside_task},
+        {"F04", "Wait blocks until all tasks finish", test_wait_blocks_until_finish},
+        {"E05", "Simulated pendingTasks tracking", test_pending_tasks_tracking_simulado},
+        {"F06", "Many waits in parallel", test_many_waits_during_execution},
+        {"F07", "High contention on atomic counter", test_high_contention_atomic_updates},
+        {"F08", "Destroy pool immediately after scheduling", test_immediate_destruction_after_schedule},
+        {"F09", "Interleaved schedule/wait execution", test_massive_schedule_wait_interleave},
+        {"F10", "Multiple wait/schedule rounds", test_schedule_after_wait_multiple_times},
+
+
     };
 
     for (const auto& t : tests) {
