@@ -6,19 +6,23 @@ CXXFLAGS = -std=c++11 -Wall -pthread -g
 TARGET = threadpool
 
 # Default target (you can comment this out if not needed)
-all: advanced
+all: custom
 
 # === Basic test target ===
 basic:
-	$(CXX) $(CXXFLAGS) -o $(TARGET) thread-pool.cc Semaphore.cc tptest_extra_info.cc
+	$(CXX) $(CXXFLAGS) -o $(TARGET) thread-pool.cc Semaphore.cc test_basic.cc
 
 # === Advanced test target ===
 advanced:
-	$(CXX) $(CXXFLAGS) -o $(TARGET) thread-pool.cc Semaphore.cc tpcustomtest_info.cc
+	$(CXX) $(CXXFLAGS) -o $(TARGET) thread-pool.cc Semaphore.cc test_advanced.cc
 
-# === Custom mega test target ===
+# === Main file target ===
+main:
+	$(CXX) $(CXXFLAGS) -o $(TARGET) thread-pool.cc Semaphore.cc main.cc
+
+# === Custom test target ===
 custom:
-	$(CXX) $(CXXFLAGS) -o $(TARGET) thread-pool.cc Semaphore.cc test_rama.cc
+	$(CXX) $(CXXFLAGS) -o $(TARGET) thread-pool.cc Semaphore.cc test_custom.cc
 
 # Clean target
 clean:
