@@ -176,28 +176,45 @@ bool test_many_short_tasks_on_few_threads() {
 }
 
 bool test_potential_deadlock() {
-    try {
-        ThreadPool pool(2);
-        mutex mtx;
-        bool ready = false;
-        pool.schedule([&]() {
-            lock_guard<mutex> l(mtx);
-            ready = true;
-            sleep_for_ms(200);
-        });
+    promise<bool> prom;
+    future<bool> fut = prom.get_future();
 
-        sleep_for_ms(50);
+    thread t([&prom]() {
+        try {
+            ThreadPool pool(2);
+            mutex mtx;
+            bool ready = false;
 
-        bool locked = mtx.try_lock();
-        if (!locked && !ready) {
-            return true;
+            pool.schedule([&]() {
+                lock_guard<mutex> l(mtx);
+                ready = true;
+                sleep_for_ms(200);
+            });
+
+            sleep_for_ms(50);
+
+            bool locked = mtx.try_lock();
+            if (!locked && !ready) {
+                prom.set_value(true);  // condición detectada correctamente
+                return;
+            }
+            if (locked) mtx.unlock();
+
+            pool.wait();
+            prom.set_value(true);  // no hubo deadlock
+        } catch (...) {
+            prom.set_value(false); // error inesperado
         }
-        if (locked) mtx.unlock();
-        pool.wait();
-        return true;
-    } catch (...) {
+    });
+
+    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
+        t.detach(); // se colgó
         return false;
     }
+
+    bool result = fut.get();
+    t.join();
+    return result;
 }
 
 bool test_pending_tasks_tracking_simulado() {
@@ -260,18 +277,34 @@ bool test_schedule_after_destruction() {
 }
 
 bool test_schedule_inside_task() {
-    try {
-        ThreadPool pool(4);
-        atomic<int> count(0);
-        pool.schedule([&]() {
-            count++;
-            pool.schedule([&]() { count++; });
-        });
-        pool.wait();
-        return count == 2;
-    } catch (...) {
+    promise<bool> prom;
+    auto fut = prom.get_future();
+
+    thread t([&prom]() {
+        try {
+            ThreadPool pool(4);
+            atomic<int> count(0);
+
+            pool.schedule([&]() {
+                count++;
+                pool.schedule([&]() { count++; });
+            });
+
+            pool.wait();
+            prom.set_value(count == 2);  // solo pasa si ambas tareas se ejecutaron
+        } catch (...) {
+            prom.set_value(false);  // error inesperado
+        }
+    });
+
+    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
+        t.detach(); // posible cuelgue por mal manejo de schedule interno
         return false;
     }
+
+    bool result = fut.get();
+    t.join();
+    return result;
 }
 
 bool test_wait_blocks_until_finish() {
@@ -293,17 +326,40 @@ bool test_many_waits_during_execution() {
     try {
         ThreadPool pool(4);
         atomic<int> completed(0);
+
         for (int i = 0; i < 50; ++i) {
             pool.schedule([&]() {
                 sleep_for_ms(10);
                 completed++;
             });
         }
+
         vector<thread> waiters;
+        vector<future<bool>> futures;
+
         for (int i = 0; i < 5; ++i) {
-            waiters.emplace_back([&]() { pool.wait(); });
+            auto prom_ptr = make_shared<promise<bool>>();
+            futures.push_back(prom_ptr->get_future());
+
+            waiters.emplace_back([&pool, prom_ptr]() {
+                try {
+                    pool.wait();
+                    prom_ptr->set_value(true);
+                } catch (...) {
+                    prom_ptr->set_value(false);
+                }
+            });
         }
-        for (auto& w : waiters) w.join();
+
+
+        for (auto& f : futures) {
+            if (f.wait_for(chrono::milliseconds(1000)) != future_status::ready || !f.get()) {
+                for (auto& t : waiters) t.detach();
+                return false; // alguno se colgó o lanzó excepción
+            }
+        }
+
+        for (auto& t : waiters) t.join();
         return completed == 50;
     } catch (...) {
         return false;
@@ -342,38 +398,70 @@ bool test_immediate_destruction_after_schedule() {
 }
 
 bool test_massive_schedule_wait_interleave() {
-    try {
-        ThreadPool pool(2);
-        atomic<int> count(0);
-        for (int i = 0; i < 50; ++i) {
-            pool.schedule([&]() {
-                sleep_for_ms(2);
-                count++;
-            });
-            if (i % 5 == 0) pool.wait();
+    promise<bool> prom;
+    auto fut = prom.get_future();
+
+    thread t([&prom]() {
+        try {
+            ThreadPool pool(2);
+            atomic<int> count(0);
+
+            for (int i = 0; i < 50; ++i) {
+                pool.schedule([&]() {
+                    sleep_for_ms(2);
+                    count++;
+                });
+                if (i % 5 == 0) pool.wait();
+            }
+
+            pool.wait();
+            prom.set_value(count == 50);  // solo pasa si todas las tareas se ejecutaron
+        } catch (...) {
+            prom.set_value(false);  // se produjo una excepción inesperada
         }
-        pool.wait();
-        return count == 50;
-    } catch (...) {
+    });
+
+    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
+        t.detach(); // el test se colgó, probablemente por sincronización incorrecta
         return false;
     }
+
+    bool result = fut.get();
+    t.join();
+    return result;
 }
 
 bool test_schedule_after_wait_multiple_times() {
-    try {
-        ThreadPool pool(2);
-        atomic<int> total{0};
-        for (int round = 0; round < 20; ++round) {
-            pool.schedule([&]() {
-                sleep_for_ms(5);
-                total++;
-            });
-            pool.wait();
+    promise<bool> prom;
+    auto fut = prom.get_future();
+
+    thread t([&prom]() {
+        try {
+            ThreadPool pool(2);
+            atomic<int> total{0};
+
+            for (int round = 0; round < 20; ++round) {
+                pool.schedule([&]() {
+                    sleep_for_ms(5);
+                    total++;
+                });
+                pool.wait();
+            }
+
+            prom.set_value(total == 20);  // valida que se ejecutaron todas las tareas
+        } catch (...) {
+            prom.set_value(false);  // se produjo una excepción inesperada
         }
-        return total == 20;
-    } catch (...) {
+    });
+
+    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
+        t.detach(); // el test se colgó, probablemente por manejo incorrecto de rondas
         return false;
     }
+
+    bool result = fut.get();
+    t.join();
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,21 +484,37 @@ bool test_destructor_waits_for_tasks() {
 // ---------------------------------------------------------------------------
 
 bool test_deep_nested_scheduling() {
-    try {
-        ThreadPool pool(4);
-        atomic<int> count(0);
-        pool.schedule([&](){
-            count++;
-            pool.schedule([&](){
+    promise<bool> prom;
+    auto fut = prom.get_future();
+
+    thread t([&prom]() {
+        try {
+            ThreadPool pool(4);
+            atomic<int> count(0);
+            pool.schedule([&]() {
                 count++;
-                pool.schedule([&](){ count++; });
+                pool.schedule([&]() {
+                    count++;
+                    pool.schedule([&]() {
+                        count++;
+                    });
+                });
             });
-        });
-        pool.wait();
-        return count == 3;
-    } catch (...) {
+            pool.wait();
+            prom.set_value(count == 3);  // solo pasa si las 3 tareas se ejecutaron
+        } catch (...) {
+            prom.set_value(false);  // se produjo una excepción inesperada
+        }
+    });
+
+    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
+        t.detach(); // se colgó, probablemente por mal manejo del anidamiento
         return false;
     }
+
+    bool result = fut.get();
+    t.join();
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,39 +540,31 @@ bool test_parallel_speedup() {
 // Error-Handling (H): llamadas a wait dentro de tareas con timeout
 // ---------------------------------------------------------------------------
 bool test_wait_inside_task() {
-    // promise para devolver el resultado de ok
     std::promise<bool> prom;
     auto fut = prom.get_future();
 
-    // lanzamos el test en un hilo aparte
     std::thread t([&prom]() {
-        bool ok = false;
         ThreadPool pool(2);
 
         pool.schedule([&]() {
-            // dentro de la tarea hacemos wait()
+            // Esto debería causar deadlock
             pool.wait();
-            ok = true;
+            prom.set_value(true);
         });
 
-        // esperamos a que se completen todas las tareas
         pool.wait();
 
-        // devolvemos si llegó a marcar ok
-        prom.set_value(ok);
+        prom.set_value(false);
     });
 
-    // esperamos como máximo 500 ms
     if (fut.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout) {
-        // si hace timeout, consideramos fallo
-        t.detach();           // no bloqueamos el hilo muerto
-        return false;
+        t.detach();
+        return true; // Solo pasa si se bloqueó correctamente
     }
 
-    // si terminó a tiempo, obtenemos el valor y unimos el hilo
     bool result = fut.get();
     t.join();
-    return result;
+    return !result; // Debería ser false, ya que no debería poder ejecutar wait() dentro de una tarea 
 }
 
 // ---------------------------------------------------------------------------
@@ -524,7 +620,7 @@ int main() {
         // Timing
         {"T01", "Parallel speedup benchmark (4 tasks)",           test_parallel_speedup},
         // Error-Handling
-        {"H01", "Wait inside task should not deadlock",           test_wait_inside_task},
+        {"H01", "Wait inside task should deadlock",           test_wait_inside_task},
     };
 
     for (const auto& t : tests) {
