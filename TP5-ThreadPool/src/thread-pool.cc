@@ -57,9 +57,15 @@ void ThreadPool::worker(int id) {
  * @param thunk - función sin argumentos ni retorno.
  */
 void ThreadPool::schedule(const function<void(void)>& thunk) {
+
+    if (!thunk) {
+        throw invalid_argument("Cannot schedule a null task.");
+    }
+
     if (done) {
         throw runtime_error("Cannot schedule tasks on a destroyed ThreadPool.");
     }
+    
     lock_guard<mutex> lock(queueLock);
     taskQueue.push(thunk);
     pendingTasks++;
@@ -70,7 +76,7 @@ void ThreadPool::schedule(const function<void(void)>& thunk) {
  * wait: bloquea hasta que todas las tareas se hayan ejecutado.
  */
 void ThreadPool::wait() {
-    lock_guard<mutex> lk(waitMutex);
+    lock_guard<mutex> lk(waitLock);
     while (true) {
         {
             lock_guard<mutex> lock(queueLock);

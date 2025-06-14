@@ -86,7 +86,7 @@ class ThreadPool {
     atomic<int> pendingTasks{0};
     Semaphore allDone{0};                    // usado por wait() para saber cuándo no queda nada en ejecución
 
-    mutex waitMutex;                         // mutex que protege el acceso a pendingTasks y taskQueue en wait() 
+    mutex waitLock;                        // mutex para proteger el acceso a pendingTasks y taskQueue
 
     /* It is incomplete, there should be more private variables to manage the structures... 
     * *

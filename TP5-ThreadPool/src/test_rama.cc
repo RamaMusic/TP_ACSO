@@ -79,6 +79,31 @@ bool test_serial_execution() {
     }
 }
 
+bool test_fifo_single_thread() {
+    try {
+        ThreadPool pool(1);  // un solo thread garantiza orden estricto
+        vector<int> log;
+        mutex mtx;
+
+        for (int i = 0; i < 10; ++i) {
+            pool.schedule([i, &log, &mtx]() {
+                lock_guard<mutex> lock(mtx);
+                log.push_back(i);
+            });
+        }
+
+        pool.wait();
+
+        for (int i = 0; i < 10; ++i) {
+            if (log[i] != i) return false;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+
 // ---------------------------------------------------------------------------
 // Concurrencia (C): Uso normal del pool
 // ---------------------------------------------------------------------------
@@ -464,6 +489,34 @@ bool test_schedule_after_wait_multiple_times() {
     return result;
 }
 
+bool test_multiple_wait_inside_tasks() {
+    promise<bool> prom;
+    auto fut = prom.get_future();
+
+    thread t([&prom]() {
+        ThreadPool pool(4);
+
+        for (int i = 0; i < 4; ++i) {
+            pool.schedule([&]() {
+                pool.wait();  // esto puede colgar si no se maneja reentrancia bien
+            });
+        }
+
+        // Este wait espera a que los anteriores terminen, lo que nunca sucederá
+        pool.wait();
+        prom.set_value(true);  // no debería llegar
+    });
+
+    if (fut.wait_for(chrono::milliseconds(500)) != future_status::ready) {
+        t.detach();
+        return true;  // correcto: se colgó
+    }
+
+    bool result = fut.get();
+    t.join();
+    return !result;
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle (L): pruebas de ciclo de vida del pool
 // ---------------------------------------------------------------------------
@@ -568,6 +621,52 @@ bool test_wait_inside_task() {
 }
 
 // ---------------------------------------------------------------------------
+// Misuse (M): pruebas de mal uso del pool
+// ---------------------------------------------------------------------------
+
+bool test_schedule_nullptr() {
+    try {
+        ThreadPool pool(2);
+        function<void()> f = nullptr;
+        pool.schedule(f);  // comportamiento indefinido si no se valida
+        pool.wait();
+        return false; // si no lanza error, está mal
+    } catch (...) {
+        return true; // correcto: debe lanzar excepción o prevenirlo
+    }
+}
+
+bool test_wait_with_infinite_schedule() {
+    promise<bool> prom;
+    auto fut = prom.get_future();
+
+    thread t([&prom]() {
+        try {
+            ThreadPool pool(2);
+            pool.schedule([&]() {
+                while (true) {
+                    pool.schedule([]() { sleep_for_ms(10); });
+                    sleep_for_ms(1);
+                }
+            });
+            pool.wait();  // esto debería colgarse
+            prom.set_value(false);
+        } catch (...) {
+            prom.set_value(true); // aceptable si se maneja
+        }
+    });
+
+    if (fut.wait_for(milliseconds(500)) != future_status::ready) {
+        t.detach();
+        return true; // el wait se cuelga como debería
+    }
+
+    bool result = fut.get();
+    t.join();
+    return result == false;
+}
+
+// ---------------------------------------------------------------------------
 
 void run_test(const TestCase& t) {
     cout << "[" << t.id << "] " << t.name << "... ";
@@ -593,6 +692,8 @@ int main() {
         {"B01", "Basic execution (3 tasks on 2 threads)",          test_basic},
         {"B02", "Wait without scheduling",                         test_wait_only},
         {"B03", "Serial execution with 1 thread",                 test_serial_execution},
+        {"B04", "FIFO execution in single-thread mode",         test_fifo_single_thread},
+
         // Concurrencia
         {"C01", "Stress with 1000 tasks",                         test_concurrent_stress},
         {"C02", "Reusing the pool after wait",                    test_reuse_pool},
@@ -613,6 +714,7 @@ int main() {
         {"F08", "Destroy pool immediately after scheduling",       test_immediate_destruction_after_schedule},
         {"F09", "Interleaved schedule/wait execution",            test_massive_schedule_wait_interleave},
         {"F10", "Multiple schedule/wait rounds",                  test_schedule_after_wait_multiple_times},
+        {"F11", "Multiple wait() calls inside tasks",                test_multiple_wait_inside_tasks},
         // Lifecycle
         {"L01", "Destructor waits for tasks completion",           test_destructor_waits_for_tasks},
         // Nesting
@@ -621,6 +723,9 @@ int main() {
         {"T01", "Parallel speedup benchmark (4 tasks)",           test_parallel_speedup},
         // Error-Handling
         {"H01", "Wait inside task should deadlock",           test_wait_inside_task},
+        // Misuse
+        {"M01", "Schedule nullptr function",                         test_schedule_nullptr},
+        {"M02", "wait() during infinite rescheduling",               test_wait_with_infinite_schedule},
     };
 
     for (const auto& t : tests) {
