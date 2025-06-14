@@ -77,7 +77,7 @@ class ThreadPool {
     thread dt;                               // dispatcher thread handle
     vector<worker_t> wts;                    // worker thread handles. you may want to change/remove this
     
-    atomic<bool> done;                               // flag to indicate the pool is being destroyed
+    atomic<bool> done;                       // flag to indicate the pool is being destroyed
 
     mutex queueLock;                         // mutex que protege el acceso a la taskQueue
     queue<function<void(void)>> taskQueue;   // queue de tareas pendientes
