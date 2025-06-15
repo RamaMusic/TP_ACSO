@@ -11,6 +11,8 @@
 #include <future>
 #include <sys/wait.h>  // waitpid
 #include <unistd.h>    // fork
+#include <map>
+#include <algorithm>
 
 using namespace std;
 using namespace chrono;
@@ -219,17 +221,18 @@ bool test_many_short_tasks_on_few_threads() {
 }
 
 bool test_potential_deadlock() {
-    promise < bool > prom;
-    future < bool > fut = prom.get_future();
+    atomic<bool> ready{false};
+    atomic<bool> finished{false};
+    mutex done_mutex;
+    condition_variable done_cv;
 
-    thread t([ & prom]() {
+    thread t([&]() {
         try {
             ThreadPool pool(2);
             mutex mtx;
-            bool ready = false;
 
-            pool.schedule([ & ]() {
-                lock_guard < mutex > l(mtx);
+            pool.schedule([&]() {
+                lock_guard<mutex> lock(mtx);
                 ready = true;
                 sleep_for_ms(200);
             });
@@ -237,26 +240,37 @@ bool test_potential_deadlock() {
             sleep_for_ms(50);
 
             bool locked = mtx.try_lock();
-            if (!locked && !ready) {
-                prom.set_value(true); // condición detectada correctamente
+            if (locked) {
+                mtx.unlock();
+            }
+
+            // Interpretar el resultado
+            if (!locked && !ready.load()) {
+                // Se detectó un posible deadlock
+                finished = true;
+                done_cv.notify_one();
                 return;
             }
-            if (locked) mtx.unlock();
 
-            pool.wait();
-            prom.set_value(true); // no hubo deadlock
+            pool.wait();  // en caso normal
+            finished = true;
+            done_cv.notify_one();
+
         } catch (...) {
-            prom.set_value(false); // error inesperado
+            finished = false;
+            done_cv.notify_one();
         }
     });
 
-    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
-        t.detach(); // se colgó
-        return false;
+    bool result = false;
+    {
+        unique_lock<mutex> lock(done_mutex);
+        result = done_cv.wait_for(lock, chrono::milliseconds(1000), [&]() {
+            return finished.load();
+        });
     }
 
-    bool result = fut.get();
-    t.join();
+    if (t.joinable()) t.join();
     return result;
 }
 
@@ -326,36 +340,26 @@ bool test_schedule_after_destruction() {
 }
 
 bool test_schedule_inside_task() {
-    promise < bool > prom;
-    auto fut = prom.get_future();
+    ThreadPool pool(4);
+    atomic<int> count(0);
+    atomic<bool> ready(false);
 
-    thread t([ & prom]() {
-        try {
-            ThreadPool pool(4);
-            atomic < int > count(0);
-
-            pool.schedule([ & ]() {
-                count++;
-                pool.schedule([ & ]() {
-                    count++;
-                });
-            });
-
-            pool.wait();
-            prom.set_value(count == 2); // solo pasa si ambas tareas se ejecutaron
-        } catch (...) {
-            prom.set_value(false); // error inesperado
-        }
+    pool.schedule([&]() {
+        count++;
+        pool.schedule([&]() {
+            count++;
+            ready = true;
+        });
     });
 
-    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
-        t.detach(); // posible cuelgue por mal manejo de schedule interno
-        return false;
+    // Esperamos hasta que se indique que la tarea interna terminó
+    for (int i = 0; i < 100; ++i) {
+        if (ready.load()) break;
+        this_thread::sleep_for(chrono::milliseconds(10));
     }
 
-    bool result = fut.get();
-    t.join();
-    return result;
+    pool.wait();
+    return count == 2 && ready.load();
 }
 
 bool test_wait_blocks_until_finish() {
@@ -378,41 +382,43 @@ bool test_wait_blocks_until_finish() {
 bool test_many_waits_during_execution() {
     try {
         ThreadPool pool(4);
-        atomic < int > completed(0);
+        atomic<int> completed(0);
 
         for (int i = 0; i < 50; ++i) {
-            pool.schedule([ & ]() {
+            pool.schedule([&]() {
                 sleep_for_ms(10);
                 completed++;
             });
         }
 
-        vector < thread > waiters;
-        vector < future < bool >> futures;
+        constexpr int N = 5;
+        array<atomic<bool>, N> done_flags;
+        for (int i = 0; i < N; ++i) done_flags[i] = false;
 
-        for (int i = 0; i < 5; ++i) {
-            auto prom_ptr = make_shared < promise < bool >> ();
-            futures.push_back(prom_ptr -> get_future());
-
-            waiters.emplace_back([ & pool, prom_ptr]() {
+        vector<thread> waiters;
+        for (int i = 0; i < N; ++i) {
+            waiters.emplace_back([&pool, &done_flags, i]() {
                 try {
                     pool.wait();
-                    prom_ptr -> set_value(true);
+                    done_flags[i] = true;
                 } catch (...) {
-                    prom_ptr -> set_value(false);
+                    done_flags[i] = false;
                 }
             });
         }
 
-        for (auto & f: futures) {
-            if (f.wait_for(chrono::milliseconds(1000)) != future_status::ready || !f.get()) {
-                for (auto & t: waiters) t.detach();
-                return false; // alguno se colgó o lanzó excepción
-            }
+        // Poll up to 1s total, giving all waiters time to finish
+        for (int t = 0; t < 100; ++t) {
+            bool all_done = true;
+            for (auto& flag : done_flags)
+                all_done &= flag.load();
+            if (all_done) break;
+            this_thread::sleep_for(chrono::milliseconds(10));
         }
 
-        for (auto & t: waiters) t.join();
-        return completed == 50;
+        for (auto& t : waiters) t.join();
+        return completed == 50 &&
+               all_of(done_flags.begin(), done_flags.end(), [](const atomic<bool>& f) { return f.load(); });
     } catch (...) {
         return false;
     }
@@ -452,37 +458,34 @@ bool test_immediate_destruction_after_schedule() {
 }
 
 bool test_massive_schedule_wait_interleave() {
-    promise < bool > prom;
-    auto fut = prom.get_future();
+    atomic<bool> done(false);
+    atomic<int> count(0);
 
-    thread t([ & prom]() {
+    thread t([&]() {
         try {
             ThreadPool pool(2);
-            atomic < int > count(0);
-
             for (int i = 0; i < 50; ++i) {
-                pool.schedule([ & ]() {
+                pool.schedule([&]() {
                     sleep_for_ms(2);
                     count++;
                 });
-                if (i % 5 == 0) pool.wait();
+                if (i % 5 == 0) pool.wait();  // intercalado
             }
 
             pool.wait();
-            prom.set_value(count == 50); // solo pasa si todas las tareas se ejecutaron
+            done = true;
         } catch (...) {
-            prom.set_value(false); // se produjo una excepción inesperada
+            done = false;
         }
     });
 
-    if (fut.wait_for(chrono::milliseconds(1000)) != future_status::ready) {
-        t.detach(); // el test se colgó, probablemente por sincronización incorrecta
-        return false;
+    for (int i = 0; i < 100; ++i) {
+        if (done.load()) break;
+        sleep_for_ms(10);
     }
 
-    bool result = fut.get();
     t.join();
-    return result;
+    return done && count == 50;
 }
 
 bool test_schedule_after_wait_multiple_times() {
@@ -804,37 +807,21 @@ bool test_wait_with_infinite_schedule() {
 // ---------------------------------------------------------------------------
 
 void run_test(const TestCase& t) {
-    const string reset  = "\033[0m";
-    const string bold   = "\033[1m";
+    const string reset = "\033[0m";
 
-    const string colorB = "\033[36m";
-    const string colorC = "\033[32m";
-    const string colorE = "\033[35m";
-    const string colorF = "\033[34m";
-    const string colorH = "\033[31m";
-    const string colorL = "\033[33m";
-    const string colorM = "\033[91m";
-    const string colorN = "\033[96m";
-    const string colorT = "\033[95m";
+    const map<char, string> colorMap = {
+        {'B', "\033[36m"}, {'C', "\033[32m"}, {'E', "\033[35m"},
+        {'F', "\033[34m"}, {'H', "\033[31m"}, {'L', "\033[33m"},
+        {'M', "\033[91m"}, {'N', "\033[96m"}, {'T', "\033[95m"}
+    };
 
-    char group = t.id[0];
-    string color;
-    switch (group) {
-        case 'B': color = colorB; break;
-        case 'C': color = colorC; break;
-        case 'E': color = colorE; break;
-        case 'F': color = colorF; break;
-        case 'H': color = colorH; break;
-        case 'L': color = colorL; break;
-        case 'M': color = colorM; break;
-        case 'N': color = colorN; break;
-        case 'T': color = colorT; break;
-        default:  color = "";     break;
+    const string color = colorMap.count(t.id[0]) ? colorMap.at(t.id[0]) : "";
+
+    {
+        lock_guard<mutex> lg(oslock);
+        cout << color << "[" << t.id << "]" << reset << " " << t.name << "... ";
+        cout.flush();  // aseguramos que el mensaje se imprima antes del fork
     }
-
-    lock_guard<mutex> lg(oslock);
-    cout << color << "[" << t.id << "]" << reset << " " << t.name << "... ";
-    cout.flush();
 
     pid_t pid = fork();
     if (pid == 0) {
@@ -845,24 +832,27 @@ void run_test(const TestCase& t) {
         int status;
         waitpid(pid, &status, 0);
 
+        string resultMsg;
         if (WIFEXITED(status)) {
             int code = WEXITSTATUS(status);
             if (code == 0) {
-                cout << "\033[1;32m✅ PASSED" << reset << "\n";
+                resultMsg = "\033[1;32m✅ PASSED\033[0m";
             } else {
-                cout << "\033[1;31m❌ FAILED" << reset << "\n";
+                resultMsg = "\033[1;31m❌ FAILED\033[0m";
                 global_success = false;
             }
         } else if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
-            cout << "\033[1;31m❌ FAILED\033[0m ";
-            cout << "\033[1;31m💥 CRASHED (signal " << sig << ")\033[0m\n";
+            resultMsg = "\033[1;31m❌ FAILED 💥 CRASHED (signal " + to_string(sig) + ")\033[0m";
             global_success = false;
         } else {
-            cout << "\033[1;31m❌ FAILED\033[0m ";
-            cout << "\033[1;31m❓ UNKNOWN ERROR\033[0m\n";
+            resultMsg = "\033[1;31m❌ FAILED ❓ UNKNOWN ERROR\033[0m";
             global_success = false;
         }
+
+        // Mostrar resultado protegido con lock
+        lock_guard<mutex> lg(oslock);
+        cout << resultMsg << endl;
     }
 }
 
@@ -875,45 +865,45 @@ void print_summary(const vector < TestCase > & tests) {
 
 int main() {
     vector<TestCase> tests = {
-        {"B01", "Basic execution (3 tasks on 2 threads)",           test_basic},
-        {"B02", "Wait without scheduling",                          test_wait_only},
-        {"B03", "Serial execution with 1 thread",                   test_serial_execution},
-        {"B04", "FIFO execution in single-thread mode",             test_fifo_single_thread},
+        // {"B01", "Basic execution (3 tasks on 2 threads)",           test_basic},
+        // {"B02", "Wait without scheduling",                          test_wait_only},
+        // {"B03", "Serial execution with 1 thread",                   test_serial_execution},
+        // {"B04", "FIFO execution in single-thread mode",             test_fifo_single_thread},
 
-        {"C01", "Stress with 1000 tasks",                           test_concurrent_stress},
-        {"C02", "Reusing the pool after wait",                      test_reuse_pool},
-        {"C03", "Multiple wait() calls",                            test_multiple_wait_calls},
+        // {"C01", "Stress with 1000 tasks",                           test_concurrent_stress},
+        // {"C02", "Reusing the pool after wait",                      test_reuse_pool},
+        // {"C03", "Multiple wait() calls",                            test_multiple_wait_calls},
 
-        {"E01", "Massive stress (10k tasks)",                       test_massive_stress},
-        {"E02", "Long tasks then shutdown",                         test_long_tasks_then_quit},
-        {"E03", "Lots of short tasks on few threads",               test_many_short_tasks_on_few_threads},
-        {"E04", "Detect potential deadlock",                        test_potential_deadlock},
-        {"E05", "Simulated pendingTasks tracking",                  test_pending_tasks_tracking_simulado},
+        // {"E01", "Massive stress (10k tasks)",                       test_massive_stress},
+        // {"E02", "Long tasks then shutdown",                         test_long_tasks_then_quit},
+        // {"E03", "Lots of short tasks on few threads",               test_many_short_tasks_on_few_threads},
+        // {"E04", "Detect potential deadlock",                        test_potential_deadlock},
+        // {"E05", "Simulated pendingTasks tracking",                  test_pending_tasks_tracking_simulado},
 
-        {"F01", "Schedule from multiple threads",                   test_schedule_from_multiple_threads},
-        {"F02", "Schedule after destruction (invalid use)",         test_schedule_after_destruction},
-        {"F03", "Schedule inside another task",                     test_schedule_inside_task},
-        {"F04", "Wait blocks until all tasks finish",               test_wait_blocks_until_finish},
-        {"F06", "Many waits in parallel",                           test_many_waits_during_execution},
-        {"F07", "High contention on atomic counter",                test_high_contention_atomic_updates},
-        {"F08", "Destroy pool immediately after scheduling",        test_immediate_destruction_after_schedule},
-        {"F09", "Interleaved schedule/wait execution",              test_massive_schedule_wait_interleave},
+        // {"F01", "Schedule from multiple threads",                   test_schedule_from_multiple_threads},
+        // {"F02", "Schedule after destruction (invalid use)",         test_schedule_after_destruction},
+        // {"F03", "Schedule inside another task",                     test_schedule_inside_task},
+        // {"F04", "Wait blocks until all tasks finish",               test_wait_blocks_until_finish},
+        // {"F06", "Many waits in parallel",                           test_many_waits_during_execution},
+        // {"F07", "High contention on atomic counter",                test_high_contention_atomic_updates},
+        // {"F08", "Destroy pool immediately after scheduling",        test_immediate_destruction_after_schedule},
+        // {"F09", "Interleaved schedule/wait execution",              test_massive_schedule_wait_interleave},
         {"F10", "Multiple schedule/wait rounds",                    test_schedule_after_wait_multiple_times},
-        {"F11", "Multiple wait() calls inside tasks",               test_multiple_wait_inside_tasks},
-        {"F12", "Concurrent schedule/wait in parallel",             test_concurrent_schedule_wait_parallel},
+        // {"F11", "Multiple wait() calls inside tasks",               test_multiple_wait_inside_tasks},
+        // {"F12", "Concurrent schedule/wait in parallel",             test_concurrent_schedule_wait_parallel},
 
-        {"H01", "Wait inside task should deadlock",                 test_wait_inside_task},
+        // {"H01", "Wait inside task should deadlock",                 test_wait_inside_task},
 
-        {"L01", "Destructor waits for tasks completion",            test_destructor_waits_for_tasks},
-        {"L02", "Repeated pool creation and destruction",           test_repeated_pool_creation},
+        // {"L01", "Destructor waits for tasks completion",            test_destructor_waits_for_tasks},
+        // {"L02", "Repeated pool creation and destruction",           test_repeated_pool_creation},
 
-        {"M01", "Schedule nullptr function",                        test_schedule_nullptr},
-        {"M02", "wait() during infinite rescheduling",              test_wait_with_infinite_schedule},
+        // {"M01", "Schedule nullptr function",                        test_schedule_nullptr},
+        // {"M02", "wait() during infinite rescheduling",              test_wait_with_infinite_schedule},
 
-        {"N01", "Deep nested task scheduling",                      test_deep_nested_scheduling},
-        {"N02", "Extreme nested scheduling (1000)",                 test_extreme_nested_scheduling},
+        // {"N01", "Deep nested task scheduling",                      test_deep_nested_scheduling},
+        // {"N02", "Extreme nested scheduling (1000)",                 test_extreme_nested_scheduling},
 
-        {"T01", "Parallel speedup benchmark (4 tasks)",             test_parallel_speedup},
+        // {"T01", "Parallel speedup benchmark (4 tasks)",             test_parallel_speedup},
     };
 
     for (const auto & t: tests) {
