@@ -1,82 +1,73 @@
 #!/usr/bin/env bash
-#
-# tester.sh — Ejecución completa de build, tests, Valgrind memcheck y Helgrind
 
-# Archivos de log temporales
-VALGRIND_MEMCHECK_LOG="valgrind_memcheck.log"
-VALGRIND_HELGRIND_LOG="valgrind_helgrind.log"
-TEST_TARGET="custom"
+# Configuración
+TARGET="custom"
+MEMCHECK_LOG="valgrind_memcheck.log"
+HELGRIND_LOG="valgrind_helgrind.log"
 
-# 🔄 Limpieza inicial
-echo "🧹  Limpieza inicial: eliminando compilados y logs antiguos..."
-make clean > /dev/null 2>&1
-rm -f $VALGRIND_MEMCHECK_LOG $VALGRIND_HELGRIND_LOG
+# Colores
+GREEN='\033[1;32m'
+RED='\033[1;31m'
+YELLOW='\033[1;33m'
+RESET='\033[0m'
 
-# ⚙️ Función auxiliar para abortar en errores y limpiar salvo el log que falló
-abort_with_cleanup() {
-  local failed_log=$1
-  echo "⚠️  Finalizando con errores. Conservando log: $failed_log"
-  # Borra el otro log si existe
-  [[ "$failed_log" != "$VALGRIND_MEMCHECK_LOG" ]] && rm -f "$VALGRIND_MEMCHECK_LOG"
-  [[ "$failed_log" != "$VALGRIND_HELGRIND_LOG" ]] && rm -f "$VALGRIND_HELGRIND_LOG"
+# Abort con limpieza
+abort() {
+  local log="$1"
+  echo -e "${RED}❌ Error detectado. Ver detalles en $log${RESET}"
+  [[ "$log" != "$MEMCHECK_LOG" ]] && rm -f "$MEMCHECK_LOG"
+  [[ "$log" != "$HELGRIND_LOG" ]] && rm -f "$HELGRIND_LOG"
   make clean > /dev/null 2>&1
   exit 1
 }
 
-# 🧹 Paso 1
-echo "🧹  Step 1/6: Limpiando build anterior..."
-make clean
-[[ $? -ne 0 ]] && abort_with_cleanup ""
+# Paso 1: limpieza
+echo -e "${YELLOW}🧹 Limpieza inicial...${RESET}"
+make clean > /dev/null 2>&1
+rm -f "$MEMCHECK_LOG" "$HELGRIND_LOG"
 
-# 🏗️ Paso 2
-echo
-echo "🏗️  Step 2/6: Compilando (make custom)..."
-make $TEST_TARGET
-[[ $? -ne 0 ]] && abort_with_cleanup ""
+# Paso 2: compilación
+echo -e "\n${YELLOW}🔧 Compilando ($TARGET)...${RESET}"
+make "$TARGET" || abort ""
 
-# ▶️ Paso 3
-echo
-echo "▶️  Step 3/6: Ejecutando tests funcionales (./threadpool --all)..."
-./threadpool --all
-[[ $? -ne 0 ]] && abort_with_cleanup ""
+# Paso 3: tests funcionales
+echo -e "\n${YELLOW}🧪 Ejecutando pruebas funcionales...${RESET}"
+./threadpool --all || abort ""
 
-# 🔍 Paso 4
-echo
-echo "🔍  Step 4/6: Ejecutando Valgrind memcheck..."
-valgrind --tool=memcheck --leak-check=full \
-         ./threadpool --all &> "$VALGRIND_MEMCHECK_LOG"
+# Paso 4: Valgrind Memcheck
+if command -v valgrind &> /dev/null; then
+  echo -e "\n${YELLOW}🔍 Valgrind Memcheck...${RESET}"
+  valgrind --tool=memcheck --leak-check=full \
+           ./threadpool --all &> "$MEMCHECK_LOG"
 
-# Buscamos errores reales (Invalid read/write, definitely lost, etc)
-critical_errors=$(grep -E '==.*ERROR SUMMARY: [1-9]' "$VALGRIND_MEMCHECK_LOG")
-definitely_lost=$(grep -E 'definitely lost: [1-9][0-9]* bytes' "$VALGRIND_MEMCHECK_LOG")
-
-if [[ -n "$critical_errors" && -n "$definitely_lost" ]]; then
-  echo "❌  Valgrind memcheck detectó errores críticos (ver $VALGRIND_MEMCHECK_LOG)"
-  abort_with_cleanup "$VALGRIND_MEMCHECK_LOG"
+  if grep -qE '==.*ERROR SUMMARY: [1-9]' "$MEMCHECK_LOG" && \
+     grep -qE 'definitely lost: [1-9][0-9]* bytes' "$MEMCHECK_LOG"; then
+    abort "$MEMCHECK_LOG"
+  else
+    echo -e "${GREEN}✅ Memcheck OK: sin pérdidas ni errores críticos${RESET}"
+  fi
 else
-  echo "✅  Valgrind memcheck: OK (no hay pérdidas definitivas ni errores críticos)"
+  echo -e "${YELLOW}⚠️  Omitiendo Memcheck: valgrind no está instalado${RESET}"
 fi
 
+# Paso 5: Helgrind (race detection)
+if command -v valgrind &> /dev/null; then
+  echo -e "\n${YELLOW}🧵 Valgrind Helgrind (race detection)...${RESET}"
+  valgrind --tool=helgrind --error-exitcode=1 \
+           ./threadpool --all &> "$HELGRIND_LOG"
 
-# 🐞 Paso 5
-echo
-echo "🐞  Step 5/6: Ejecutando Valgrind Helgrind (race detection)..."
-valgrind --tool=helgrind --error-exitcode=1 \
-         ./threadpool --all &> "$VALGRIND_HELGRIND_LOG"
-if [[ $? -ne 0 ]]; then
-  echo "❌  Helgrind detectó data races (ver $VALGRIND_HELGRIND_LOG)"
-  abort_with_cleanup "$VALGRIND_HELGRIND_LOG"
+  if [[ $? -ne 0 ]]; then
+    abort "$HELGRIND_LOG"
+  else
+    echo -e "${GREEN}✅ Helgrind OK: no se detectaron data races${RESET}"
+  fi
 else
-  echo "✅  Valgrind Helgrind: OK"
+  echo -e "${YELLOW}⚠️  Omitiendo Helgrind: valgrind no está instalado${RESET}"
 fi
 
-# 🧹 Paso 6
-echo
-echo "🧹  Step 6/6: Limpieza final completa..."
-make clean
-rm -f "$VALGRIND_MEMCHECK_LOG" "$VALGRIND_HELGRIND_LOG"
-echo "✅  Todos los archivos temporales eliminados"
+# Paso 6: limpieza final
+echo -e "\n${YELLOW}🧹 Limpieza final...${RESET}"
+make clean > /dev/null 2>&1
+rm -f "$MEMCHECK_LOG" "$HELGRIND_LOG"
 
-# 🎉 Éxito total
-echo
-echo "🎉  ¡Todos los pasos completados correctamente!"
+echo -e "\n${GREEN}🎯 Todos los pasos fueron completados correctamente${RESET}"
