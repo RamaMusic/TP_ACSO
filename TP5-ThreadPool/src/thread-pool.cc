@@ -7,6 +7,7 @@
 #include "thread-pool.h"
 #include <chrono>
 #include <thread>
+#include <stdexcept>
 
 using namespace std;
 
@@ -16,7 +17,7 @@ using namespace std;
  */
 ThreadPool::ThreadPool(size_t numThreads) : wts(numThreads), done(false) {
     for (size_t i = 0; i < numThreads; ++i) { 
-        wts[i].ts = thread(&ThreadPool::worker, this, i);
+        wts[i].ts = thread(&ThreadPool::worker, this, i); // Inicia cada worker
     }
     dt = thread(&ThreadPool::dispatcher, this);
 }

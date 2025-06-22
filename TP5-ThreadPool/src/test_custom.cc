@@ -24,6 +24,7 @@
 #include <unistd.h>    // fork
 #include <map>
 #include <algorithm>
+#include <array>
 
 using namespace std;
 using namespace chrono;
@@ -124,6 +125,46 @@ bool test_fifo_single_thread() {
         return false;
     }
 }
+
+bool test_concurrent_execution_integrity() {
+    try {
+        const int NUM_TASKS = 1000;
+        const int NUM_THREADS = 4;
+
+        ThreadPool pool(NUM_THREADS);
+        vector<bool> ejecutado(NUM_TASKS, false);
+        mutex mtx;
+
+        for (int i = 0; i < NUM_TASKS; ++i) {
+            pool.schedule([i, &ejecutado, &mtx]() {
+                lock_guard<mutex> lock(mtx);
+                if (ejecutado[i]) {
+                    cerr << "❌ Error: tarea " << i << " ejecutada más de una vez!" << endl;
+                }
+                ejecutado[i] = true;
+            });
+        }
+
+        pool.wait();
+
+        // Verificamos que todas las tareas hayan sido ejecutadas exactamente una vez
+        for (int i = 0; i < NUM_TASKS; ++i) {
+            if (!ejecutado[i]) {
+                cerr << "❌ Error: tarea " << i << " no fue ejecutada!" << endl;
+                return false;
+            }
+        }
+
+        return true;
+    } catch (const exception& e) {
+        cerr << "Excepción: " << e.what() << endl;
+        return false;
+    } catch (...) {
+        cerr << "Excepción desconocida" << endl;
+        return false;
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // Concurrencia (C): Uso normal del pool
@@ -260,19 +301,25 @@ bool test_potential_deadlock() {
                 mtx.unlock();
             }
 
-            // Interpretar el resultado
             if (!locked && !ready.load()) {
                 // Se detectó un posible deadlock
-                finished = true;
-                done_cv.notify_one();
+                {
+                    lock_guard<mutex> lk(done_mutex);
+                    finished = true;
+                    done_cv.notify_one();
+                }
                 return;
             }
 
-            pool.wait();  // en caso normal
-            finished = true;
-            done_cv.notify_one();
+            pool.wait();  // caso normal
+            {
+                lock_guard<mutex> lk(done_mutex);
+                finished = true;
+                done_cv.notify_one();
+            }
 
         } catch (...) {
+            lock_guard<mutex> lk(done_mutex);
             finished = false;
             done_cv.notify_one();
         }
@@ -834,6 +881,144 @@ bool test_wait_with_infinite_schedule() {
     return result == false;
 }
 
+// Adicionales
+
+bool test_capture_correctness() {
+    try {
+        ThreadPool pool(2);
+        int a = 42, b = 17;
+        int result1 = 0, result2 = 0;
+
+        pool.schedule([a, &result1]() { result1 = a; });
+        pool.schedule([&b, &result2]() { result2 = b; });
+
+        pool.wait();
+
+        return result1 == 42 && result2 == 17;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool test_alternating_task_weight() {
+    try {
+        ThreadPool pool(4);
+        vector<int> results;
+        mutex mtx;
+
+        for (int i = 0; i < 1000; ++i) {
+            pool.schedule([i, &results, &mtx]() {
+                if (i % 2 == 0) this_thread::sleep_for(chrono::milliseconds(1));
+                lock_guard<mutex> lock(mtx);
+                results.push_back(i);
+            });
+        }
+
+        pool.wait();
+        return results.size() == 1000;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool test_signal_overload() {
+    static atomic<int> counter(0);  // evitar copia
+
+    try {
+        counter = 0;
+        ThreadPool pool(2);
+
+        for (int i = 0; i < 1000; ++i) {
+            pool.schedule([]() {
+                this_thread::sleep_for(chrono::microseconds(10));
+                counter++;
+            });
+        }
+
+        pool.wait();
+        return counter == 1000;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool test_worker_state_corruption() {
+    static atomic<int> count(0);
+
+    try {
+        count = 0;
+        ThreadPool pool(2);
+
+        for (int i = 0; i < 100; ++i) {
+            pool.schedule([]() {
+                this_thread::sleep_for(chrono::milliseconds(1));
+                count++;
+            });
+        }
+
+        pool.wait();
+        return count == 100;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool test_scalability_with_mutex_contention() {
+    try {
+        ThreadPool pool(4);
+        mutex mtx;
+        int counter = 0;
+
+        for (int i = 0; i < 1000; ++i) {
+            pool.schedule([&]() {
+                lock_guard<mutex> lock(mtx);
+                counter++;
+            });
+        }
+
+        pool.wait();
+        return counter == 1000;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool test_destruction_during_load() {
+    try {
+        {
+            ThreadPool pool(4);
+            for (int i = 0; i < 1000; ++i) {
+                pool.schedule([]() {
+                    this_thread::sleep_for(chrono::milliseconds(1));
+                });
+            }
+            // pool se destruye aquí automáticamente
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool test_double_destruction_or_use_after_move() {
+    try {
+        ThreadPool* pool = new ThreadPool(2);
+        pool->schedule([]() {});
+        pool->wait();
+        delete pool;
+
+        try {
+            pool->schedule([]() {});  // uso inválido
+            return false;
+        } catch (...) {
+            return true;  // debería fallar correctamente
+        }
+    } catch (...) {
+        return false;
+    }
+}
+
+
 // ---------------------------------------------------------------------------
 
 void run_test(const TestCase& t) {
@@ -895,45 +1080,62 @@ void print_summary(const vector < TestCase > & tests) {
 
 int main() {
     vector<TestCase> tests = {
-        {"B01", "Basic execution (3 tasks on 2 threads)",           test_basic},
-        {"B02", "Wait without scheduling",                          test_wait_only},
-        {"B03", "Serial execution with 1 thread",                   test_serial_execution},
-        {"B04", "FIFO execution in single-thread mode",             test_fifo_single_thread},
+        // Básicos (B)
+        {"B01", "Basic execution (3 tasks on 2 threads)",              test_basic},
+        {"B02", "Wait without scheduling",                             test_wait_only},
+        {"B03", "Serial execution with 1 thread",                      test_serial_execution},
+        {"B04", "FIFO execution in single-thread mode",                test_fifo_single_thread},
+        {"B05", "Concurrent execution integrity (1000 tasks)",         test_concurrent_execution_integrity},
+        {"B06", "Task execution preserves capture context",            test_capture_correctness},
 
-        {"C01", "Stress with 1000 tasks",                           test_concurrent_stress},
-        {"C02", "Reusing the pool after wait",                      test_reuse_pool},
-        {"C03", "Multiple wait() calls",                            test_multiple_wait_calls},
+        // Concurrencia (C)
+        {"C01", "Stress with 1000 tasks",                              test_concurrent_stress},
+        {"C02", "Reusing the pool after wait",                         test_reuse_pool},
+        {"C03", "Multiple wait() calls",                               test_multiple_wait_calls},
+        {"C04", "Alternating heavy/light tasks stress",                test_alternating_task_weight},
+        {"C05", "Excessive signal calls to dispatcher",                test_signal_overload},
 
-        {"E01", "Massive stress (10k tasks)",                       test_massive_stress},
-        {"E02", "Long tasks then shutdown",                         test_long_tasks_then_quit},
-        {"E03", "Lots of short tasks on few threads",               test_many_short_tasks_on_few_threads},
-        {"E04", "Detect potential deadlock",                        test_potential_deadlock},
-        {"E05", "Simulated pendingTasks tracking",                  test_pending_tasks_tracking_simulado},
+        // Extremos (E)
+        {"E01", "Massive stress (10k tasks)",                          test_massive_stress},
+        {"E02", "Long tasks then shutdown",                            test_long_tasks_then_quit},
+        {"E03", "Lots of short tasks on few threads",                  test_many_short_tasks_on_few_threads},
+        {"E04", "Detect potential deadlock",                           test_potential_deadlock},
+        {"E05", "Simulated pendingTasks tracking",                     test_pending_tasks_tracking_simulado},
 
-        {"F01", "Schedule from multiple threads",                   test_schedule_from_multiple_threads},
-        {"F02", "Schedule after destruction (invalid use)",         test_schedule_after_destruction},
-        {"F03", "Schedule inside another task",                     test_schedule_inside_task},
-        {"F04", "Wait blocks until all tasks finish",               test_wait_blocks_until_finish},
-        {"F06", "Many waits in parallel",                           test_many_waits_during_execution},
-        {"F07", "High contention on atomic counter",                test_high_contention_atomic_updates},
-        {"F08", "Destroy pool immediately after scheduling",        test_immediate_destruction_after_schedule},
-        {"F09", "Interleaved schedule/wait execution",              test_massive_schedule_wait_interleave},
-        {"F10", "Multiple schedule/wait rounds",                    test_schedule_after_wait_multiple_times},
-        {"F11", "Multiple wait() calls inside tasks",               test_multiple_wait_inside_tasks},
-        {"F12", "Concurrent schedule/wait in parallel",             test_concurrent_schedule_wait_parallel},
+        // Funcionales (F)
+        {"F01", "Schedule from multiple threads",                      test_schedule_from_multiple_threads},
+        {"F02", "Schedule after destruction (invalid use)",            test_schedule_after_destruction},
+        {"F03", "Schedule inside another task",                        test_schedule_inside_task},
+        {"F04", "Wait blocks until all tasks finish",                  test_wait_blocks_until_finish},
+        {"F06", "Many waits in parallel",                              test_many_waits_during_execution},
+        {"F07", "High contention on atomic counter",                   test_high_contention_atomic_updates},
+        {"F08", "Destroy pool immediately after scheduling",           test_immediate_destruction_after_schedule},
+        {"F09", "Interleaved schedule/wait execution",                 test_massive_schedule_wait_interleave},
+        {"F10", "Multiple schedule/wait rounds",                       test_schedule_after_wait_multiple_times},
+        {"F11", "Multiple wait() calls inside tasks",                  test_multiple_wait_inside_tasks},
+        {"F12", "Concurrent schedule/wait in parallel",                test_concurrent_schedule_wait_parallel},
+        {"F13", "Worker state corruption attempt",                     test_worker_state_corruption},
 
-        {"H01", "Wait inside task should deadlock",                 test_wait_inside_task},
+        // Errores (H)
+        {"H01", "Wait inside task should deadlock",                    test_wait_inside_task},
 
-        {"L01", "Destructor waits for tasks completion",            test_destructor_waits_for_tasks},
-        {"L02", "Repeated pool creation and destruction",           test_repeated_pool_creation},
+        // Ciclo de vida (L)
+        {"L01", "Destructor waits for tasks completion",              test_destructor_waits_for_tasks},
+        {"L02", "Repeated pool creation and destruction",             test_repeated_pool_creation},
+        {"L03", "Destructor during high load",                        test_destruction_during_load},
 
-        {"M01", "Schedule nullptr function",                        test_schedule_nullptr},
-        {"M02", "wait() during infinite rescheduling",              test_wait_with_infinite_schedule},
+        // Mal uso (M)
+        {"M01", "Schedule nullptr function",                          test_schedule_nullptr},
+        {"M02", "wait() during infinite rescheduling",                test_wait_with_infinite_schedule},
+        {"M03", "Use-after-destruction protection",                   test_double_destruction_or_use_after_move},
 
-        {"N01", "Deep nested task scheduling",                      test_deep_nested_scheduling},
-        {"N02", "Extreme nested scheduling (1000)",                 test_extreme_nested_scheduling},
+        // Anidamiento (N)
+        {"N01", "Deep nested task scheduling",                        test_deep_nested_scheduling},
+        {"N02", "Extreme nested scheduling (1000)",                   test_extreme_nested_scheduling},
 
-        {"T01", "Parallel speedup benchmark (4 tasks)",             test_parallel_speedup},
+        // Timing / Benchmark (T)
+        {"T01", "Parallel speedup benchmark (4 tasks)",               test_parallel_speedup},
+        {"T02", "Scalability bottleneck test",                        test_scalability_with_mutex_contention}
     };
 
     for (const auto & t: tests) {
